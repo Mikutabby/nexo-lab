@@ -78,7 +78,7 @@ Nexo está creado para PCs modestas. No necesitas una GPU cara ni 16 GB de RAM.
 ## 🚀 Instalación rápida
 
 ```bash
-git clone https://github.com/tu-usuario/nexo-ecosystem.git
+git clone https://github.com/Mikutabby/nexo-ecosystem.git
 cd nexo-ecosystem
 chmod +x install.sh
 ./install.sh
