@@ -1,0 +1,12 @@
+# Datos locales (no subir al repo)
+*.db
+*.json
+*.pkl
+*.yml
+__pycache__/
+*.pyc
+learned/
+log/
+.DS_Store
+*.swp
+*.swo

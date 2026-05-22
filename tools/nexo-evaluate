@@ -1,0 +1,72 @@
+#!/bin/bash
+# ✅ Nexo Evaluator
+# Evalúa si una tarea compleja está completa o necesita más pasos.
+# Usa Ollama para evaluar calidad y completitud.
+#
+# Uso:
+#   nexo-evaluate <archivo_con_texto>
+#   nexo-evaluate "descripción de la tarea" "acciones tomadas"
+#
+# Salida: JSON con {status: "complete"|"incomplete"|"failed", reason: "...", next_steps: "..."}
+
+EVAL_MODEL="${NEXO_EVAL_MODEL:-llama3.2:1b}"
+
+evaluate() {
+  local task="$1"
+  local actions="$2"
+  
+  if [[ -z "$task" ]]; then
+    echo '{"status":"error","reason":"No hay tarea para evaluar"}'
+    return 1
+  fi
+  
+  local prompt="Evalúa si la siguiente tarea está COMPLETA o INCOMPLETA.
+
+TAREA: $task
+
+ACCIONES TOMADAS:
+$actions
+
+Respondé SOLO con este formato JSON, sin explicaciones adicionales:
+{
+  \"status\": \"complete\" | \"incomplete\" | \"failed\",
+  \"reason\": \"Resumen corto de por qué\",
+  \"confidence\": 0.0-1.0,
+  \"next_steps\": \"Qué falta hacer si está incompleta\"
+}"
+
+  local result=$(ollama run "$EVAL_MODEL" "$prompt" 2>/dev/null)
+  
+  # Intentar extraer JSON de la respuesta
+  local json=$(echo "$result" | python3 -c "
+import sys, json
+lines = sys.stdin.read()
+# Buscar bloque JSON
+start = lines.find('{')
+end = lines.rfind('}') + 1
+if start >= 0 and end > start:
+    try:
+        d = json.loads(lines[start:end])
+        print(json.dumps(d))
+    except:
+        print('{\"status\":\"unknown\",\"reason\":\"No se pudo parsear respuesta\",\"raw\":\"' + lines.replace('\"','\\\"') + '\"}')
+else:
+    print('{\"status\":\"unknown\",\"reason\":\"Sin JSON en respuesta\"}')
+" 2>/dev/null)
+  
+  echo "$json"
+}
+
+# Si se pasa un archivo, leerlo
+if [[ -f "$1" ]]; then
+  content=$(cat "$1")
+  IFS='|' read -r task actions <<< "$content"
+  evaluate "$task" "$actions"
+elif [[ -n "$1" && -n "$2" ]]; then
+  evaluate "$1" "$2"
+else
+  # Leer de stdin
+  read -r input
+  IFS='|' read -r task actions <<< "$input"
+  evaluate "$task" "$actions"
+fi

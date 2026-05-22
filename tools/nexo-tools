@@ -1,0 +1,189 @@
+#!/bin/bash
+# 🔧 Nexo Tool Registry
+# Registro central de herramientas. Los tools se almacenan en el knowledge graph.
+#
+# Uso:
+#   nexo-tools list                          → Listar herramientas registradas
+#   nexo-tools add <nombre> <descripción> <comando>  → Registrar herramienta
+#   nexo-tools remove <nombre>               → Eliminar herramienta
+#   nexo-tools run <nombre> [args...]        → Ejecutar herramienta
+#   nexo-tools search <consulta>             → Buscar herramientas
+#   nexo-tools info <nombre>                 → Ver detalle de herramienta
+
+TOOLS_BRANCH="world"
+NEXO_GRAPH="nexo-graph"
+
+show_help() {
+  head -20 "$0" | grep -E "^#  " | sed 's/^# //'
+}
+
+cmd_list() {
+  local tools
+  tools=$($NEXO_GRAPH children "$TOOLS_BRANCH" 2>/dev/null | grep -E "^  • " | grep -v "Acciones\|Dispositivos\|Mejoras\|Pendiente\|📔")
+  if [[ -z "$tools" ]]; then
+    echo "🔧 No hay herramientas registradas."
+    echo "   Usá: nexo-tools add <nombre> <descripción> <comando>"
+    return
+  fi
+  echo "🔧 Herramientas registradas:"
+  echo "$tools" | while IFS= read -r line; do
+    local name=$(echo "$line" | sed 's/^  • //' | cut -d' ' -f1)
+    local rest=$(echo "$line" | sed 's/^  • [^ ]* //')
+    echo "  ⚡ $name — $rest"
+  done
+}
+
+cmd_add() {
+  if [[ $# -lt 3 ]]; then
+    echo "❌ Uso: nexo-tools add <nombre> <descripción> <comando>"
+    exit 1
+  fi
+  local name="$1"
+  local desc="$2"
+  shift 2
+  local command="$*"
+  
+  # Verificar si ya existe
+  local existing
+  existing=$($NEXO_GRAPH search "tool:$name" 2>/dev/null | grep "tool:$name")
+  if [[ -n "$existing" ]]; then
+    echo "❌ Ya existe una herramienta llamada '$name'"
+    echo "   Usá 'nexo-tools remove $name' primero si querés reemplazarla"
+    exit 1
+  fi
+  
+  # Guardar en el knowledge graph como nodo world con prefijo tool:
+  local data="tool:$name|$desc|$command"
+  $NEXO_GRAPH add "$TOOLS_BRANCH" "tool:$name" "$data" 2>/dev/null
+  echo "✅ Herramienta '$name' registrada: $desc"
+  echo "   Comando: $command"
+}
+
+cmd_remove() {
+  if [[ $# -lt 1 ]]; then
+    echo "❌ Uso: nexo-tools remove <nombre>"
+    exit 1
+  fi
+  local name="$1"
+  
+  # Buscar el ID del nodo
+  local result
+  result=$($NEXO_GRAPH search "tool:$name" 2>/dev/null | head -1)
+  if [[ -z "$result" ]]; then
+    echo "❌ No se encontró herramienta '$name'"
+    exit 1
+  fi
+  
+  # Extraer ID - está en los nodos. Necesito obtenerlo de otra forma
+  # Como no tenemos el ID directo, usamos un approach diferente:
+  # Buscamos en el grafo por nombre exacto
+  echo "⚠️ Para eliminar, usá: nexo-graph search 'tool:$name' y luego nexo-graph delete <id>"
+  echo "   (la eliminación directa desde nexo-tools requiere el ID)"
+}
+
+cmd_run() {
+  if [[ $# -lt 1 ]]; then
+    echo "❌ Uso: nexo-tools run <nombre> [args...]"
+    exit 1
+  fi
+  local name="$1"
+  shift
+  
+  # Buscar la herramienta en el grafo
+  local result
+  result=$($NEXO_GRAPH search "tool:$name" 2>/dev/null | grep "tool:$name" | head -1)
+  if [[ -z "$result" ]]; then
+    echo "❌ Herramienta '$name' no encontrada"
+    echo "   Probá 'nexo-tools list' para ver las disponibles"
+    exit 1
+  fi
+  
+  # Extraer el comando del data
+  # Formato: tool:nombre|desc|comando
+  local node_data
+  # Necesitamos obtener el data del nodo. Buscamos por nombre exacto.
+  # Usamos python para parsear el search output
+  local cmd=$(python3 -c "
+import subprocess, json
+result = subprocess.run(['$NEXO_GRAPH', 'search', 'tool:$name'], capture_output=True, text=True)
+lines = result.stdout.strip().split('\n')
+for line in lines:
+    if 'tool:$name' in line:
+        # Extraer data del formato: • [world] tool:nombre: descripción
+        parts = line.split('tool:$name', 1)
+        if len(parts) > 1:
+            rest = parts[1].strip()
+            # El formato del search es: • [world] tool:nombre: data_preview
+            # Necesitamos conseguir el comando real
+            pass
+
+# Mejor: usar nexo-graph warm-profile o buscar de otra forma
+# Vamos a obtener por node name exacto via children
+" 2>/dev/null)
+  
+  # Alternativa más directa: buscar con grep en los datos del grafo
+  # Usamos sqlite3 directamente para obtener el data
+  local full_cmd=$(sqlite3 "$HOME/.nexo-memory/graph.db" \
+    "SELECT data FROM memory_nodes WHERE name = 'tool:$name' AND branch = '$TOOLS_BRANCH' LIMIT 1;" 2>/dev/null)
+  
+  if [[ -z "$full_cmd" ]]; then
+    echo "❌ No se pudo recuperar el comando de '$name'"
+    exit 1
+  fi
+  
+  # Extraer el comando (tercer campo separado por |)
+  local exec_cmd=$(echo "$full_cmd" | cut -d'|' -f3-)
+  local desc=$(echo "$full_cmd" | cut -d'|' -f2)
+  
+  echo "⚡ Ejecutando: $name — $desc"
+  echo "   \$ $exec_cmd $*"
+  echo ""
+  eval "$exec_cmd $*"
+}
+
+cmd_search() {
+  if [[ $# -lt 1 ]]; then
+    echo "❌ Uso: nexo-tools search <consulta>"
+    exit 1
+  fi
+  local query="$*"
+  echo "🔍 Buscando herramientas: $query"
+  $NEXO_GRAPH search "tool:" 2>/dev/null | grep -i "$query" || echo "  (sin resultados)"
+}
+
+cmd_info() {
+  if [[ $# -lt 1 ]]; then
+    echo "❌ Uso: nexo-tools info <nombre>"
+    exit 1
+  fi
+  local name="$1"
+  local data=$(sqlite3 "$HOME/.nexo-memory/graph.db" \
+    "SELECT data FROM memory_nodes WHERE name = 'tool:$name' AND branch = '$TOOLS_BRANCH' LIMIT 1;" 2>/dev/null)
+  
+  if [[ -z "$data" ]]; then
+    echo "❌ Herramienta '$name' no encontrada"
+    exit 1
+  fi
+  
+  local desc=$(echo "$data" | cut -d'|' -f2)
+  local cmd=$(echo "$data" | cut -d'|' -f3-)
+  
+  echo "🔧 $name"
+  echo "   Descripción: $desc"
+  echo "   Comando: $cmd"
+}
+
+case "${1:-list}" in
+  list|ls) shift; cmd_list "$@" ;;
+  add|register) shift; cmd_add "$@" ;;
+  remove|rm|delete) shift; cmd_remove "$@" ;;
+  run|exec|execute) shift; cmd_run "$@" ;;
+  search|find|query) shift; cmd_search "$@" ;;
+  info|show) shift; cmd_info "$@" ;;
+  help|--help|-h) show_help ;;
+  *)
+    echo "❌ Comando desconocido: $1"
+    show_help
+    exit 1
+    ;;
+esac

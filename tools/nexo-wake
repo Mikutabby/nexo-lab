@@ -1,0 +1,252 @@
+#!/bin/bash
+# 🔊 Nexo Wake Word Detection
+# Escucha continuamente y detecta la palabra "nexo" para activación por voz.
+#
+# Uso:
+#   nexo-wake                    → Modo loop infinito (escucha "nexo" y ejecuta comandos)
+#   nexo-wake once               → Escucha una vez y dice si detectó "nexo"
+#   nexo-wake daemon start|stop  → Modo daemon (inicia/detiene servicio)
+#   nexo-wake sensitivity <0-1>  → Ajustar sensibilidad (defecto: 0.6)
+
+PIDFILE="/tmp/nexo-wake.pid"
+LOGFILE="/tmp/nexo-wake.log"
+SENSITIVITY=0.6
+DURATION=2
+
+log() {
+  echo "[$(date '+%H:%M:%S')] $*" >> "$LOGFILE"
+}
+
+check_wake_word() {
+  local text="$1"
+  local lower_text=$(echo "$text" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-záéíóúñ0-9 ]//g')
+  
+  # 1. Exact match
+  if echo "$lower_text" | grep -q "nexo"; then
+    return 0
+  fi
+  
+  # 2. Fuzzy match (difflib)
+  local fuzzy_result=$(python3 -c "
+import difflib, sys
+text = '''$lower_text'''
+# Palabras a buscar
+targets = ['nexo', 'neco', 'nejo', 'necho', 'neto', 'deco', 'mecso']
+words = text.split()
+for word in words:
+    for target in targets:
+        ratio = difflib.SequenceMatcher(None, word, target).ratio()
+        if ratio >= $SENSITIVITY:
+            print('MATCH', word, ratio)
+            sys.exit(0)
+print('NOMATCH')
+" 2>/dev/null)
+  
+  if echo "$fuzzy_result" | grep -q "MATCH"; then
+    return 0
+  fi
+  
+  return 1
+}
+
+record_and_check() {
+  local outfile="/tmp/nexo-wake-$$.wav"
+  local trimmed="/tmp/nexo-wake-trimmed-$$.wav"
+  
+  # Grabar audio
+  export PULSE_SERVER="${PULSE_SERVER:-unix:/run/user/1000/pulse/native}"
+  timeout "$DURATION" parec --rate=16000 --channels=1 --format=s16le 2>/dev/null | \
+    ffmpeg -y -f s16le -ar 16000 -ac 1 -i pipe:0 "$outfile" 2>/dev/null
+  
+  if [ ! -s "$outfile" ]; then
+    # Fallback: rec (SoX)
+    rec -q -r 16000 -c 1 -b 16 "$outfile" trim 0 "$DURATION" 2>/dev/null
+  fi
+  
+  if [ ! -s "$outfile" ]; then
+    rm -f "$outfile"
+    return 1
+  fi
+  
+  # VAD: detectar si hay voz
+  local has_voice=$(python3 -c "
+import sys, json, os
+sys.path.insert(0, os.path.expanduser('~/.local/bin/miku-eco'))
+from vad_utils import has_speech
+hv, pct = has_speech('$outfile', aggressiveness=3)
+print('true' if hv else 'false')
+" 2>/dev/null)
+  
+  if [ "$has_voice" != "true" ]; then
+    rm -f "$outfile"
+    return 1
+  fi
+  
+  # Recortar silencio
+  python3 -c "
+import sys, os
+sys.path.insert(0, os.path.expanduser('~/.local/bin/miku-eco'))
+from vad_utils import trim_silence
+trim_silence('$outfile', '$trimmed', aggressiveness=1)
+" 2>/dev/null
+  
+  local audio_file="$outfile"
+  if [ -s "$trimmed" ]; then
+    audio_file="$trimmed"
+  fi
+  
+  # Transcribir
+  local text=$(python3 -c "
+import sys
+try:
+    import speech_recognition as sr
+except:
+    import subprocess
+    subprocess.run([sys.executable, '-m', 'pip', 'install', 'SpeechRecognition', '--break-system-packages'])
+    import speech_recognition as sr
+
+r = sr.Recognizer()
+with sr.WavFile('$audio_file') as source:
+    r.adjust_for_ambient_noise(source, duration=0.3)
+    audio = r.record(source)
+
+try:
+    text = r.recognize_google(audio, language='es-ES')
+    print(text)
+except:
+    pass
+" 2>/dev/null)
+  
+  rm -f "$outfile" "$trimmed"
+  
+  if [[ -z "$text" ]]; then
+    return 1
+  fi
+  
+  echo "$text"
+  
+  if check_wake_word "$text"; then
+    return 0
+  fi
+  
+  return 1
+}
+
+cmd_once() {
+  echo "🎤 Escuchando... (${DURATION}s)" >&2
+  local text
+  text=$(record_and_check 2>/dev/null)
+  local ret=$?
+  
+  if [[ -n "$text" ]]; then
+    echo "📝 Transcripción: $text" >&2
+  fi
+  
+  if [ $ret -eq 0 ]; then
+    echo "✅ Wake word detectada: '$text'" >&2
+    echo "$text"
+    return 0
+  else
+    echo "❌ No se detectó wake word" >&2
+    return 1
+  fi
+}
+
+cmd_loop() {
+  echo "🔊 Nexo Wake — Modo loop infinito"
+  echo "   Escuchando cada ${DURATION}s..."
+  echo "   Wake word: 'nexo' (sensibilidad: $SENSITIVITY)"
+  echo "   PID: $$"
+  echo "   Log: $LOGFILE"
+  echo ""
+  
+  while true; do
+    local text
+    text=$(record_and_check 2>/dev/null)
+    local ret=$?
+    
+    if [ $ret -eq 0 ] && [[ -n "$text" ]]; then
+      log "🎤 Wake word: $text"
+      echo "🔊 Wake word detectada: $text" | tee -a "$LOGFILE"
+      
+      # Extraer el comando después de "nexo"
+      local command=$(echo "$text" | sed 's/nexo//gi' | sed 's/^[[:space:]]*//')
+      
+      if [[ -n "$command" ]]; then
+        log "🗣️ Comando: $command"
+        echo "🗣️ Procesando: $command"
+        # Ejecutar voice.sh con el comando (graba y transcribe el comando completo)
+        bash ~/.opencode/voice.sh es 5 2>/dev/null
+      else
+        # Esperar comando completo
+        log "⏳ Esperando comando completo..."
+        echo "⏳ Hablá tu comando..."
+        bash ~/.opencode/voice.sh es 5 2>/dev/null
+      fi
+    fi
+    
+    sleep 0.5  # Pequeña pausa entre ciclos
+  done
+}
+
+cmd_daemon() {
+  case "${1:-start}" in
+    start)
+      if [[ -f "$PIDFILE" ]] && kill -0 $(cat "$PIDFILE") 2>/dev/null; then
+        echo "❌ nexo-wake ya está corriendo (PID: $(cat $PIDFILE))"
+        exit 1
+      fi
+      echo "🔊 Iniciando nexo-wake daemon..."
+      nohup "$0" loop > /dev/null 2>&1 &
+      echo $! > "$PIDFILE"
+      echo "✅ Daemon iniciado (PID: $!)"
+      ;;
+    stop)
+      if [[ ! -f "$PIDFILE" ]]; then
+        echo "❌ nexo-wake no está corriendo"
+        exit 1
+      fi
+      kill $(cat "$PIDFILE") 2>/dev/null
+      rm -f "$PIDFILE"
+      echo "✅ Daemon detenido"
+      ;;
+    status)
+      if [[ -f "$PIDFILE" ]] && kill -0 $(cat "$PIDFILE") 2>/dev/null; then
+        echo "🔊 nexo-wake: activo (PID: $(cat $PIDFILE))"
+      else
+        echo "🔊 nexo-wake: inactivo"
+      fi
+      ;;
+    *)
+      echo "❌ Uso: nexo-wake daemon start|stop|status"
+      ;;
+  esac
+}
+
+# Main
+case "${1:-loop}" in
+  once|one-shot)
+    cmd_once
+    ;;
+  loop|listen)
+    cmd_loop
+    ;;
+  daemon)
+    shift
+    cmd_daemon "$@"
+    ;;
+  sensitivity|sens)
+    if [[ -n "$2" && "$2" =~ ^[0-9.]+$ ]]; then
+      SENSITIVITY="$2"
+      echo "✅ Sensibilidad ajustada a: $SENSITIVITY"
+    else
+      echo "Sensibilidad actual: $SENSITIVITY"
+    fi
+    ;;
+  help|--help|-h)
+    head -50 "$0" | grep -E "^# " | sed 's/^# //'
+    ;;
+  *)
+    cmd_loop
+    ;;
+esac

@@ -1,0 +1,29 @@
+#!/bin/bash
+# 🚀 Falkon Rápido - Navegador ultra optimizado para PC vieja
+# Creado por Nexo para miku
+
+# Flags de Chromium/QtWebEngine optimizados para bajo consumo
+export QTWEBENGINE_CHROMIUM_FLAGS="\
+  --disable-smooth-scrolling \
+  --disable-gpu-vsync \
+  --disable-accelerated-2d-canvas \
+  --disable-webgl \
+  --disable-webrtc \
+  --disable-sync \
+  --disable-translate \
+  --disable-background-networking \
+  --disable-component-update \
+  --disable-crash-reporter \
+  --disable-renderer-backgrounding \
+  --no-pings \
+  --no-first-run \
+  --no-default-browser-check \
+  --disk-cache-size=20971520 \
+  --media-cache-size=10485760 \
+  --enable-low-end-device-mode"
+
+# Prioridad baja para no afectar al sistema
+renice +5 $$ 2>/dev/null
+
+# Ejecutar Falkon sin extensiones y con perfil optimizado
+exec falkon -e --profile="default" "$@"

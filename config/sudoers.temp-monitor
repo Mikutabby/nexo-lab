@@ -1,0 +1,16 @@
+# Regla sudoers para Nexo Temperature Monitor
+# Permite apagado automático sin contraseña cuando la temperatura es crítica
+# Instalado por install.sh — reemplazar USERNAME por el usuario real
+
+# Permitir rtcwake (despertar programado)
+USERNAME ALL=(ALL) NOPASSWD: /usr/sbin/rtcwake
+USERNAME ALL=(ALL) NOPASSWD: /sbin/rtcwake
+
+# Permitir apagado del sistema
+USERNAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl poweroff
+USERNAME ALL=(ALL) NOPASSWD: /bin/systemctl poweroff
+
+# Permitir cancelación de apagado
+USERNAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl cancel
+USERNAME ALL=(ALL) NOPASSWD: /bin/systemctl cancel
+USERNAME ALL=(ALL) NOPASSWD: /sbin/sh -c 'echo 0 > /sys/class/rtc/rtc0/wakealarm'

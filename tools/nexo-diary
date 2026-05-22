@@ -1,0 +1,119 @@
+#!/bin/bash
+# 📔 Nexo Diary Summariser
+# Resume las interacciones del día usando Ollama y guarda en el knowledge graph.
+#
+# Uso:
+#   nexo-diary                    → Resume el día de hoy
+#   nexo-diary yesterday          → Resume el día de ayer
+#   nexo-diary YYYY-MM-DD         → Resume un día específico
+#   nexo-diary status             → Muestra resúmenes guardados
+#   nexo-diary auto               → Ejecuta solo si hay interacciones nuevas
+
+LOG_DIR="$HOME/.nexo-memory/log"
+GRAPH_DB="$HOME/.nexo-memory/graph.db"
+
+get_date() {
+  case "${1:-today}" in
+    yesterday) date -d "yesterday" +%Y-%m-%d ;;
+    today|*) date +%Y-%m-%d ;;
+  esac
+}
+
+show_status() {
+  echo "📔 Nexo Diary Summariser"
+  echo "========================"
+  echo "Logs disponibles:"
+  ls -1 "$LOG_DIR"/*.log 2>/dev/null | while read f; do
+    lines=$(wc -l < "$f")
+    date=$(basename "$f" .log)
+    echo "  • $date ($lines interacciones)"
+  done
+  echo ""
+  echo "Resúmenes en grafo:"
+  if command -v nexo-graph &>/dev/null; then
+    nexo-graph search "📔 Resumen" 2>/dev/null || echo "  (ninguno)"
+  fi
+}
+
+summarise_day() {
+  local target_date="$1"
+  local logfile="$LOG_DIR/$target_date.log"
+  
+  if [[ ! -f "$logfile" ]]; then
+    echo "📔 No hay interacciones registradas para $target_date"
+    return 0
+  fi
+  
+  local line_count=$(wc -l < "$logfile")
+  if [[ "$line_count" -lt 2 ]]; then
+    echo "📔 Muy pocas interacciones para resumir ($line_count línea/s)"
+    return 0
+  fi
+  
+  # Extraer mensajes relevantes (info level)
+  local entries=$(grep -E "\[.*\] info:" "$logfile" | sed 's/.*info: //' | head -50)
+  
+  if [[ -z "$entries" ]]; then
+    echo "📔 No hay entradas informativas para resumir"
+    return 0
+  fi
+  
+  echo "📔 Resumiendo $target_date ($line_count interacciones)..." >&2
+  
+  # Llamar a Ollama para resumir
+  local summary=$(ollama run llama3.2:1b "Resumí en español las siguientes interacciones de un asistente con su usuario. Hacelo en 3-4 líneas máximo, informal, destacando lo más importante:
+
+$entries
+
+Resumen:" 2>/dev/null)
+  
+  if [[ -z "$summary" ]]; then
+    echo "⚠️ Ollama no respondió, usando resumen simple" >&2
+    summary="Interacciones del $target_date: $line_count eventos registrados."
+  fi
+  
+  # Guardar en knowledge graph
+  if command -v nexo-graph &>/dev/null; then
+    nexo-graph add world "📔 Resumen $target_date" "$summary" 2>/dev/null
+    echo "✅ Resumen guardado en knowledge graph" >&2
+  fi
+  
+  echo ""
+  echo "📔 Resumen del $target_date"
+  echo "========================="
+  echo "$summary"
+  echo ""
+  echo "(basado en $line_count interacciones)"
+}
+
+case "${1:-today}" in
+  status)
+    show_status
+    ;;
+  auto)
+    # Auto: resume hoy si hay interacciones nuevas desde el último resumen
+    target_date=$(date +%Y-%m-%d)
+    logfile="$LOG_DIR/$target_date.log"
+    if [[ ! -f "$logfile" ]]; then
+      exit 0
+    fi
+    # Verificar si ya existe resumen en el grafo
+    if command -v nexo-graph &>/dev/null; then
+      existing=$(nexo-graph search "📔 Resumen $target_date" 2>/dev/null)
+      if [[ -n "$existing" ]]; then
+        exit 0  # Ya resumido
+      fi
+    fi
+    summarise_day "$target_date"
+    ;;
+  yesterday)
+    summarise_day "$(date -d 'yesterday' +%Y-%m-%d)"
+    ;;
+  *)
+    if [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+      summarise_day "$1"
+    else
+      summarise_day "$(date +%Y-%m-%d)"
+    fi
+    ;;
+esac

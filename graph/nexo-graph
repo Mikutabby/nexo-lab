@@ -1,0 +1,838 @@
+#!/usr/bin/env python3
+"""
+🧠 Nexo Knowledge Graph — Memoria persistente estructurada.
+Basado en el diseño de isair/jarvis, adaptado para Nexo.
+
+Arquitectura de 3 ramas fijas bajo root:
+  root
+  ├── user       → Datos del usuario (identidad, gustos, preferencias)
+  ├── directives → Instrucciones de comportamiento (tono, idioma, reglas)
+  └── world      → Conocimiento externo (dispositivos, configuraciones, hechos)
+
+Uso: nexo-graph <comando> [args]
+  init                  → Inicializar BD y ramas fijas
+  add <rama> <nombre> <datos>  → Agregar nodo (rama: user|directives|world)
+  get <id>              → Mostrar nodo
+  search <consulta>     → Buscar por palabra clave
+  recall <consulta>     → Recall Gate: buscar por Jaccard similarity
+  semsearch <consulta>  → Búsqueda semántica por embeddings (Ollama)
+  embed [id]            → Generar embedding (todos o uno específico)
+  children <id>         → Hijos de un nodo
+  warm-profile          → Mostrar warm profile (user + directives)
+  recent                → Nodos accedidos recientemente
+  top                   → Nodos más accedidos
+  touch <id>            → Marcar acceso a nodo
+  stats                 → Estadísticas del grafo
+  tree                  → Árbol completo
+  migrate               → Migrar facts de memory.json al grafo
+"""
+
+import json
+import os
+import sqlite3
+import sys
+import threading
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+# ── Configuración ──────────────────────────────────────────────────────────
+
+MEMORY_DIR = Path.home() / ".nexo-memory"
+DB_PATH = MEMORY_DIR / "graph.db"
+MEMORY_JSON = MEMORY_DIR / "memory.json"
+
+FIXED_BRANCHES = {
+    "user": ("User", "Datos del usuario: identidad, gustos, preferencias, historia personal"),
+    "directives": ("Directives", "Instrucciones de comportamiento: tono, idioma, reglas, estilo"),
+    "world": ("World", "Conocimiento externo: dispositivos, configuraciones, hechos aprendidos"),
+}
+
+# ── Schema SQL ─────────────────────────────────────────────────────────────
+
+SCHEMA_SQL = """
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS memory_nodes (
+    id               TEXT PRIMARY KEY,
+    name             TEXT NOT NULL,
+    description      TEXT NOT NULL DEFAULT '',
+    data             TEXT NOT NULL DEFAULT '',
+    parent_id        TEXT REFERENCES memory_nodes(id) ON DELETE SET NULL,
+    branch           TEXT NOT NULL DEFAULT 'user',
+    access_count     INTEGER NOT NULL DEFAULT 0,
+    last_accessed    TEXT NOT NULL,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_nodes_parent ON memory_nodes(parent_id);
+CREATE INDEX IF NOT EXISTS idx_nodes_branch ON memory_nodes(branch);
+CREATE INDEX IF NOT EXISTS idx_nodes_last_accessed ON memory_nodes(last_accessed DESC);
+CREATE INDEX IF NOT EXISTS idx_nodes_access ON memory_nodes(access_count DESC);
+"""
+
+# Columna de embedding (agregada después, migración automática)
+EMBEDDING_COLUMN_SQL = """
+ALTER TABLE memory_nodes ADD COLUMN embedding TEXT DEFAULT '';
+"""
+
+
+# ── Graph Memory Store ─────────────────────────────────────────────────────
+
+class GraphStore:
+    def __init__(self, db_path=None):
+        self.db_path = str(db_path or DB_PATH)
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row
+        self._lock = threading.RLock()
+        self._init_schema()
+        self._migrate_schema()
+        self._ensure_root()
+
+    def _migrate_schema(self):
+        """Agregar columnas nuevas si no existen (migración idempotente)."""
+        with self._lock:
+            try:
+                self.conn.execute(EMBEDDING_COLUMN_SQL)
+                self.conn.commit()
+            except sqlite3.OperationalError:
+                pass  # Ya existe
+
+    def _init_schema(self):
+        with self._lock:
+            self.conn.executescript(SCHEMA_SQL)
+            self.conn.commit()
+
+    def _ensure_root(self):
+        """Crear root + 3 ramas fijas si no existen (idempotente)."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            root = self.conn.execute(
+                "SELECT id FROM memory_nodes WHERE id = 'root'"
+            ).fetchone()
+            if not root:
+                self.conn.execute(
+                    """INSERT INTO memory_nodes
+                       (id, name, description, data, parent_id, branch,
+                        access_count, last_accessed, created_at, updated_at)
+                       VALUES ('root', 'Root', 'Nodo raíz del conocimiento', '', NULL, 'root',
+                               0, ?, ?, ?)""",
+                    (now, now, now),
+                )
+                self.conn.commit()
+
+            for bid, (bname, bdesc) in FIXED_BRANCHES.items():
+                self.conn.execute(
+                    """INSERT OR IGNORE INTO memory_nodes
+                       (id, name, description, data, parent_id, branch,
+                        access_count, last_accessed, created_at, updated_at)
+                       VALUES (?, ?, ?, '', 'root', ?, 0, ?, ?, ?)""",
+                    (bid, bname, bdesc, bid, now, now, now),
+                )
+            self.conn.commit()
+
+    def _now(self):
+        return datetime.now(timezone.utc).isoformat()
+
+    def create_node(self, name, data="", description="", parent_id=None, branch="user"):
+        """Crear un nodo y devolver su ID."""
+        node_id = str(uuid.uuid4())
+        now = self._now()
+        if parent_id is None:
+            parent_id = branch  # Cuelga directamente de la rama
+
+        with self._lock:
+            self.conn.execute(
+                """INSERT INTO memory_nodes
+                   (id, name, description, data, parent_id, branch,
+                    access_count, last_accessed, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)""",
+                (node_id, name, description[:300], data, parent_id, branch, now, now, now),
+            )
+            self.conn.commit()
+        return node_id
+
+    def get_node(self, node_id):
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM memory_nodes WHERE id = ?", (node_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_children(self, parent_id):
+        with self._lock:
+            rows = self.conn.execute(
+                """SELECT * FROM memory_nodes WHERE parent_id = ?
+                   ORDER BY access_count DESC, last_accessed DESC""",
+                (parent_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def search(self, query, limit=10):
+        """Búsqueda por palabras clave en name, description y data."""
+        keywords = [k.strip() for k in query.split() if k.strip()]
+        if not keywords:
+            return []
+
+        conditions = []
+        params = []
+        for kw in keywords:
+            pattern = f"%{kw}%"
+            conditions.append(
+                "(name LIKE ? OR description LIKE ? OR data LIKE ?)"
+            )
+            params.extend([pattern, pattern, pattern])
+
+        sql = f"""SELECT *, (
+            CASE WHEN name LIKE ? THEN 3 ELSE 0 END +
+            CASE WHEN description LIKE ? THEN 3 ELSE 0 END +
+            CASE WHEN data LIKE ? THEN 1 ELSE 0 END
+        ) AS relevance
+        FROM memory_nodes
+        WHERE id NOT IN ('root', 'user', 'directives', 'world')
+        AND ({' OR '.join(conditions)})
+        ORDER BY relevance DESC, access_count DESC
+        LIMIT ?"""
+
+        # Add params for the CASE part (first keyword for scoring)
+        kw = keywords[0]
+        pattern_first = f"%{kw}%"
+        search_params = [pattern_first, pattern_first, pattern_first] + params + [limit]
+
+        with self._lock:
+            rows = self.conn.execute(sql, search_params).fetchall()
+            results = [dict(r) for r in rows]
+            # Touch matched nodes
+            for r in results:
+                self.touch_node(r["id"])
+            return results
+
+    def touch_node(self, node_id):
+        now = self._now()
+        with self._lock:
+            self.conn.execute(
+                "UPDATE memory_nodes SET access_count = access_count + 1, last_accessed = ? WHERE id = ?",
+                (now, node_id),
+            )
+            self.conn.commit()
+
+    def update_node(self, node_id, **kwargs):
+        updates = []
+        params = []
+        for key in ("name", "description", "data", "parent_id"):
+            if key in kwargs:
+                updates.append(f"{key} = ?")
+                params.append(kwargs[key])
+        if not updates:
+            return False
+        updates.append("updated_at = ?")
+        params.append(self._now())
+        params.append(node_id)
+        with self._lock:
+            self.conn.execute(
+                f"UPDATE memory_nodes SET {', '.join(updates)} WHERE id = ?",
+                params,
+            )
+            self.conn.commit()
+        return True
+
+    def find_by_data_exact(self, data_text, branch="user"):
+        """Check if a node with exact data text exists."""
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT id FROM memory_nodes WHERE data = ? AND branch = ? LIMIT 1",
+                (data_text, branch),
+            ).fetchone()
+            return dict(row) if row else None
+
+    # ── Recall Gate (Jaccard) ───────────────────────────────────────────
+
+    @staticmethod
+    def jaccard_similarity(text_a, text_b):
+        """Jaccard similarity entre conjuntos de palabras."""
+        set_a = set(text_a.lower().split())
+        set_b = set(text_b.lower().split())
+        if not set_a or not set_b:
+            return 0.0
+        intersection = set_a & set_b
+        union = set_a | set_b
+        return len(intersection) / len(union) if union else 0.0
+
+    def recall_search(self, query, threshold=0.15, limit=5):
+        """Recall Gate: buscar por Jaccard similarity con el query.
+        Retorna nodos cuya data tiene similitud de Jaccard > threshold.
+        """
+        results = []
+        with self._lock:
+            rows = self.conn.execute(
+                """SELECT * FROM memory_nodes
+                   WHERE id NOT IN ('root', 'user', 'directives', 'world')
+                   AND data != ''"""
+            ).fetchall()
+            for row in rows:
+                d = dict(row)
+                sim = self.jaccard_similarity(query, d["data"])
+                if sim >= threshold:
+                    d["_jaccard"] = round(sim, 3)
+                    results.append(d)
+
+        results.sort(key=lambda x: x["_jaccard"], reverse=True)
+        # Touch matched nodes
+        for r in results[:limit]:
+            self.touch_node(r["id"])
+        return results[:limit]
+
+    # ── Embeddings (Ollama) ─────────────────────────────────────────────
+
+    def generate_embedding(self, text, model="nomic-embed-text"):
+        """Generar embedding vector usando Ollama."""
+        import urllib.request
+        import json as _json
+
+        payload = _json.dumps({"model": model, "input": text}).encode("utf-8")
+        try:
+            req = urllib.request.Request(
+                "http://localhost:11434/api/embed",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                result = _json.loads(resp.read().decode("utf-8"))
+                if "embeddings" in result and result["embeddings"]:
+                    return result["embeddings"][0]
+        except Exception:
+            return None
+
+    def store_embedding(self, node_id):
+        """Generar y guardar embedding para un nodo."""
+        node = self.get_node(node_id)
+        if not node or not node["data"]:
+            return False
+        emb = self.generate_embedding(node["data"])
+        if emb is None:
+            return False
+        emb_json = json.dumps(emb)
+        with self._lock:
+            self.conn.execute(
+                "UPDATE memory_nodes SET embedding = ? WHERE id = ?",
+                (emb_json, node_id),
+            )
+            self.conn.commit()
+        return True
+
+    @staticmethod
+    def cosine_similarity(vec_a, vec_b):
+        """Coseno entre dos vectores."""
+        if not vec_a or not vec_b or len(vec_a) != len(vec_b):
+            return 0.0
+        dot = sum(a * b for a, b in zip(vec_a, vec_b))
+        norm_a = sum(a * a for a in vec_a) ** 0.5
+        norm_b = sum(b * b for b in vec_b) ** 0.5
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return dot / (norm_a * norm_b)
+
+    def semantic_search(self, query, limit=5):
+        """Buscar por similitud semántica (coseno) usando embeddings."""
+        query_emb = self.generate_embedding(query)
+        if query_emb is None:
+            return []
+
+        results = []
+        with self._lock:
+            rows = self.conn.execute(
+                """SELECT * FROM memory_nodes
+                   WHERE id NOT IN ('root', 'user', 'directives', 'world')
+                   AND embedding != '' AND embedding IS NOT NULL"""
+            ).fetchall()
+            for row in rows:
+                d = dict(row)
+                node_emb = json.loads(d["embedding"])
+                sim = self.cosine_similarity(query_emb, node_emb)
+                if sim > 0.1:
+                    d["_cosine"] = round(sim, 3)
+                    results.append(d)
+
+        results.sort(key=lambda x: x["_cosine"], reverse=True)
+        for r in results[:limit]:
+            self.touch_node(r["id"])
+        return results[:limit]
+
+    def delete_node(self, node_id):
+        if node_id in ("root", "user", "directives", "world"):
+            return False
+        with self._lock:
+            self.conn.execute("DELETE FROM memory_nodes WHERE id = ?", (node_id,))
+            self.conn.commit()
+        return True
+
+    def get_recent(self, limit=10):
+        with self._lock:
+            rows = self.conn.execute(
+                """SELECT * FROM memory_nodes
+                   WHERE id NOT IN ('root', 'user', 'directives', 'world')
+                   ORDER BY last_accessed DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_top(self, limit=10):
+        with self._lock:
+            rows = self.conn.execute(
+                """SELECT * FROM memory_nodes
+                   WHERE id NOT IN ('root', 'user', 'directives', 'world')
+                   ORDER BY access_count DESC, last_accessed DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def warm_profile(self, user_max_chars=2000, directives_max_chars=1000):
+        """Construir warm profile: concatenar datos de ramas user y directives."""
+        profile = {"user": "", "directives": ""}
+
+        for branch_id in ("user", "directives"):
+            parts = []
+            remaining = user_max_chars if branch_id == "user" else directives_max_chars
+            queue = [branch_id]
+            visited = set()
+
+            while queue and remaining > 0:
+                nid = queue.pop(0)
+                if nid in visited:
+                    continue
+                visited.add(nid)
+                node = self.get_node(nid)
+                if not node:
+                    continue
+                if node["data"]:
+                    snippet = node["data"].strip()
+                    if len(snippet) > remaining:
+                        snippet = snippet[:max(0, remaining - 1)].rstrip() + "…"
+                    if snippet:
+                        parts.append(snippet)
+                        remaining -= len(snippet) + 1
+                for child in self.get_children(nid):
+                    queue.append(child["id"])
+
+            profile[branch_id] = "\n".join(parts)
+
+        return profile
+
+    def get_tree(self, node_id="root", indent=0):
+        """Retornar árbol como string."""
+        node = self.get_node(node_id)
+        if not node:
+            return ""
+        prefix = "  " * indent
+        name = node["name"]
+        data_preview = (node["data"][:60] + "…") if len(node.get("data", "")) > 60 else node.get("data", "")
+        data_str = f" — {data_preview}" if data_preview else ""
+        acc = node.get("access_count", 0)
+        lines = [f"{prefix}📁 {name} (accesos: {acc}){data_str}"]
+        for child in self.get_children(node_id):
+            lines.append(self.get_tree(child["id"], indent + 1))
+        return "\n".join(lines)
+
+    def get_stats(self):
+        with self._lock:
+            total = self.conn.execute("SELECT COUNT(*) as c FROM memory_nodes").fetchone()["c"]
+            facts = self.conn.execute(
+                "SELECT COUNT(*) as c FROM memory_nodes WHERE id NOT IN ('root', 'user', 'directives', 'world')"
+            ).fetchone()["c"]
+            user = self.conn.execute(
+                "SELECT COUNT(*) as c FROM memory_nodes WHERE branch = 'user' AND id != 'user'"
+            ).fetchone()["c"]
+            directives = self.conn.execute(
+                "SELECT COUNT(*) as c FROM memory_nodes WHERE branch = 'directives' AND id != 'directives'"
+            ).fetchone()["c"]
+            world = self.conn.execute(
+                "SELECT COUNT(*) as c FROM memory_nodes WHERE branch = 'world' AND id != 'world'"
+            ).fetchone()["c"]
+            total_data = self.conn.execute(
+                "SELECT COALESCE(SUM(LENGTH(data)), 0) as total FROM memory_nodes"
+            ).fetchone()["total"]
+            return {
+                "total_nodes": total,
+                "fact_nodes": facts,
+                "user_facts": user,
+                "directives": directives,
+                "world_facts": world,
+                "total_chars": total_data,
+            }
+
+    def close(self):
+        try:
+            self.conn.close()
+        except Exception:
+            pass
+
+
+# ── Línea de Comandos ─────────────────────────────────────────────────────
+
+def cmd_init(args=None):
+    store = GraphStore()
+    print(f"✅ Knowledge Graph inicializado en {DB_PATH}")
+    print(f"   Ramas: user, directives, world")
+    store.close()
+
+
+def cmd_add(args):
+    if len(args) < 3:
+        print("❌ Uso: nexo-graph add <rama> <nombre> <datos>")
+        print("   rama: user | directives | world")
+        sys.exit(1)
+    branch, name = args[0], args[1]
+    data = " ".join(args[2:])
+
+    if branch not in FIXED_BRANCHES:
+        print(f"❌ Rama inválida: {branch}. Usa: user, directives, world")
+        sys.exit(1)
+
+    store = GraphStore()
+    nid = store.create_node(name=name, data=data, branch=branch)
+    node = store.get_node(nid)
+    print(f"✅ Nodo creado: {node['name']} [{branch}]")
+    print(f"   ID: {nid}")
+    store.close()
+
+
+def cmd_get(args):
+    if not args:
+        print("❌ Uso: nexo-graph get <id>")
+        sys.exit(1)
+    store = GraphStore()
+    node = store.get_node(args[0])
+    if not node:
+        print("❌ Nodo no encontrado")
+        store.close()
+        return
+    print(f"📄 {node['name']}")
+    print(f"   ID:     {node['id']}")
+    print(f"   Rama:   {node['branch']}")
+    print(f"   Padre:  {node['parent_id'] or '—'}")
+    print(f"   Accesos: {node['access_count']}")
+    print(f"   Creado: {node['created_at']}")
+    print(f"   Desc:   {node['description']}")
+    if node['data']:
+        print(f"   Datos:\n{node['data']}")
+    store.close()
+
+
+def cmd_search(args):
+    if not args:
+        print("❌ Uso: nexo-graph search <consulta>")
+        sys.exit(1)
+    query = " ".join(args)
+    store = GraphStore()
+    results = store.search(query)
+    if not results:
+        print("🔍 Sin resultados")
+        store.close()
+        return
+    print(f"🔍 Resultados para '{query}':")
+    for r in results:
+        preview = r["data"][:80].replace("\n", " ") if r["data"] else "—"
+        print(f"  • [{r['branch']}] {r['name']}: {preview}")
+    store.close()
+
+
+def cmd_children(args):
+    if not args:
+        print("❌ Uso: nexo-graph children <id>")
+        sys.exit(1)
+    store = GraphStore()
+    children = store.get_children(args[0])
+    if not children:
+        print("   (sin hijos)")
+        store.close()
+        return
+    print(f"📂 Hijos de {args[0]}:")
+    for c in children:
+        preview = c["data"][:60].replace("\n", " ") if c["data"] else ""
+        print(f"  • {c['name']} — {preview}")
+    store.close()
+
+
+def cmd_warm_profile(args=None):
+    store = GraphStore()
+    profile = store.warm_profile()
+    if profile["user"]:
+        print("=== INFORMACIÓN DEL USUARIO ===")
+        print(profile["user"])
+    if profile["directives"]:
+        print("\n=== INSTRUCCIONES ===")
+        print(profile["directives"])
+    if not profile["user"] and not profile["directives"]:
+        print("(sin datos en warm profile)")
+    store.close()
+
+
+def cmd_recent(args=None):
+    store = GraphStore()
+    nodes = store.get_recent()
+    if not nodes:
+        print("(sin nodos)")
+        store.close()
+        return
+    print("🕐 Nodos recientes:")
+    for n in nodes:
+        print(f"  • {n['name']} [{n['branch']}] — {n['last_accessed'][:19]}")
+    store.close()
+
+
+def cmd_top(args=None):
+    store = GraphStore()
+    nodes = store.get_top()
+    if not nodes:
+        print("(sin nodos)")
+        store.close()
+        return
+    print("🏆 Nodos más accedidos:")
+    for n in nodes:
+        print(f"  • {n['name']} [{n['branch']}] — {n['access_count']} accesos")
+    store.close()
+
+
+def cmd_stats(args=None):
+    store = GraphStore()
+    s = store.get_stats()
+    print("📊 Knowledge Graph — Estadísticas")
+    print(f"   Nodos totales:    {s['total_nodes']}")
+    print(f"   Hechos de usuario: {s['user_facts']}")
+    print(f"   Directivas:       {s['directives']}")
+    print(f"   Mundo exterior:   {s['world_facts']}")
+    print(f"   Datos totales:    {s['total_chars']} caracteres")
+    store.close()
+
+
+def cmd_touch(args):
+    if not args:
+        print("❌ Uso: nexo-graph touch <id>")
+        sys.exit(1)
+    store = GraphStore()
+    node = store.get_node(args[0])
+    if not node:
+        print("❌ Nodo no encontrado")
+        store.close()
+        return
+    store.touch_node(args[0])
+    print(f"✅ Acceso registrado: {node['name']}")
+    store.close()
+
+
+def cmd_recall(args):
+    """Recall Gate: buscar por Jaccard similarity."""
+    if not args:
+        print("❌ Uso: nexo-graph recall <consulta>")
+        sys.exit(1)
+    query = " ".join(args)
+    store = GraphStore()
+    results = store.recall_search(query)
+    if not results:
+        print(f"🔍 Recall Gate: sin resultados para '{query}' (threshold ≥ 0.15)")
+        store.close()
+        return
+    print(f"🔍 Recall Gate — '{query}':")
+    for r in results:
+        preview = r["data"][:80].replace("\n", " ") if r["data"] else "—"
+        print(f"  • [{r['branch']}] J={r['_jaccard']} {r['name']}: {preview}")
+    store.close()
+
+
+def cmd_embed(args):
+    """Generar embedding para uno o todos los nodos."""
+    store = GraphStore()
+    if args:
+        # Embed un nodo específico
+        nid = args[0]
+        node = store.get_node(nid)
+        if not node:
+            print("❌ Nodo no encontrado")
+            store.close()
+            return
+        print(f"🧠 Generando embedding para: {node['name']}...", end=" ", flush=True)
+        if store.store_embedding(nid):
+            print("✅ OK")
+        else:
+            print("❌ Falló (Ollama no disponible o nodo vacío)")
+    else:
+        # Embed todos los nodos sin embedding
+        with store._lock:
+            rows = store.conn.execute(
+                """SELECT id, name FROM memory_nodes
+                   WHERE (embedding IS NULL OR embedding = '')
+                   AND data != '' AND id NOT IN ('root', 'user', 'directives', 'world')"""
+            ).fetchall()
+            nodes = [dict(r) for r in rows]
+        if not nodes:
+            print("🧠 Todos los nodos ya tienen embedding")
+            store.close()
+            return
+        print(f"🧠 Generando embeddings para {len(nodes)} nodos...")
+        success = 0
+        for n in nodes:
+            print(f"  • {n['name']}...", end=" ", flush=True)
+            if store.store_embedding(n["id"]):
+                print("✅")
+                success += 1
+            else:
+                print("❌")
+        print(f"✅ {success}/{len(nodes)} embeddings generados")
+    store.close()
+
+
+def cmd_semsearch(args):
+    """Búsqueda semántica por embeddings."""
+    if not args:
+        print("❌ Uso: nexo-graph semsearch <consulta>")
+        sys.exit(1)
+    query = " ".join(args)
+    store = GraphStore()
+    print(f"🔎 Búsqueda semántica: '{query}'...")
+    results = store.semantic_search(query)
+    if not results:
+        print("  Sin resultados semánticos")
+        print("  💡 Probá 'nexo-graph embed' primero para generar embeddings")
+        store.close()
+        return
+    print(f"🔎 Resultados semánticos para '{query}':")
+    for r in results:
+        preview = r["data"][:80].replace("\n", " ") if r["data"] else "—"
+        print(f"  • [{r['branch']}] C={r['_cosine']} {r['name']}: {preview}")
+    store.close()
+
+
+def cmd_tree(args=None):
+    store = GraphStore()
+    print(store.get_tree())
+    store.close()
+
+
+def cmd_migrate(args=None):
+    """Migrar facts de memory.json al grafo."""
+    if not MEMORY_JSON.exists():
+        print("❌ No se encuentra memory.json")
+        return
+
+    with open(MEMORY_JSON) as f:
+        data = json.load(f)
+
+    store = GraphStore()
+    migrated = 0
+
+    # Migrar facts del usuario
+    facts = data.get("user", {}).get("facts", [])
+    for i, fact in enumerate(facts):
+        existing = store.find_by_data_exact(fact, branch="user")
+        if not existing:
+            store.create_node(
+                name=f"Fact {i+1}",
+                data=fact,
+                branch="user",
+                description="Hecho sobre el usuario"
+            )
+            migrated += 1
+
+    # Migrar preferencias
+    prefs = data.get("user", {}).get("preferences", {})
+    if prefs:
+        prefs_text = "\n".join(f"{k}: {v}" for k, v in prefs.items())
+        store.create_node(
+            name="Preferencias del usuario",
+            data=prefs_text,
+            branch="user",
+            description="Preferencias configuradas del usuario"
+        )
+        migrated += 1
+
+    # Migrar mejoras como world
+    improvements = data.get("learned_patterns", {}).get("improvements", [])
+    if improvements:
+        store.create_node(
+            name="Mejoras del sistema",
+            data="\n".join(improvements),
+            branch="world",
+            description="Mejoras implementadas en el sistema"
+        )
+        migrated += 1
+
+    # Migrar dispositivos de red como world
+    devices = data.get("network", {}).get("devices", {})
+    if devices:
+        device_texts = []
+        for ip, info in devices.items():
+            device_texts.append(f"{info.get('name', '?')} ({ip}): {info.get('notes', '')}")
+        store.create_node(
+            name="Dispositivos de red",
+            data="\n".join(device_texts),
+            branch="world",
+            description="Dispositivos detectados en la red local"
+        )
+        migrated += 1
+
+    # Migrar identidad como user
+    nexo_info = data.get("nexo", {})
+    if nexo_info:
+        store.create_node(
+            name="Identidad de Nexo",
+            data=f"Nombre: {nexo_info.get('name', 'Nexo')}, Creador: {nexo_info.get('creator', 'mikuyasha')}, Ecosistema: {nexo_info.get('ecosystem', 'Nexo Ecosystem')}",
+            branch="user",
+            description="Información sobre la identidad del asistente"
+        )
+        migrated += 1
+
+    # Migrar acciones pendientes
+    pending = data.get("pending_actions", [])
+    if pending:
+        pend_texts = [f"{p.get('task', '?')}: {p.get('description', '')} [{p.get('status', 'pending')}]" for p in pending]
+        store.create_node(
+            name="Acciones pendientes",
+            data="\n".join(pend_texts),
+            branch="world",
+            description="Tareas pendientes registradas"
+        )
+        migrated += 1
+
+    store.close()
+    print(f"✅ Migración completada: {migrated} nodos creados en el grafo")
+    print("   Los datos originales en memory.json NO fueron modificados")
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(1)
+
+    cmd = sys.argv[1]
+    args = sys.argv[2:]
+
+    commands = {
+        "init": cmd_init,
+        "add": cmd_add,
+        "get": cmd_get,
+        "search": cmd_search,
+        "recall": cmd_recall,
+        "semsearch": cmd_semsearch,
+        "embed": cmd_embed,
+        "children": cmd_children,
+        "warm-profile": cmd_warm_profile,
+        "recent": cmd_recent,
+        "top": cmd_top,
+        "touch": cmd_touch,
+        "stats": cmd_stats,
+        "tree": cmd_tree,
+        "migrate": cmd_migrate,
+    }
+
+    if cmd not in commands:
+        print(f"❌ Comando desconocido: {cmd}")
+        print(__doc__)
+        sys.exit(1)
+
+    commands[cmd](args)
+
+
+if __name__ == "__main__":
+    main()

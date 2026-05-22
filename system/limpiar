@@ -1,0 +1,44 @@
+#!/bin/bash
+
+echo "=== LIMPIADOR AUTOMATICO ==="
+echo
+
+# 1. Cache de APT
+echo "[1/7] Cache de APT..."
+sudo apt-get autoremove --purge -y 2>/dev/null && echo "  OK (autoremove)" || echo "  - (requiere sudo)"
+sudo apt-get autoclean -y 2>/dev/null && echo "  OK (autoclean)" || echo "  - (requiere sudo)"
+
+# 2. Miniaturas (thumbnails) viejas
+echo "[2/7] Miniaturas..."
+rm -rf "$HOME/.cache/thumbnails/"* 2>/dev/null
+echo "  OK"
+
+# 3. Journal logs viejos (ultimos 3 dias)
+echo "[3/7] Logs del sistema (journal)..."
+sudo journalctl --vacuum-time=3d 2>/dev/null && echo "  OK" || echo "  - (requiere sudo)"
+
+# 4. Caché de navegadores
+echo "[4/7] Cache de navegadores..."
+rm -rf "$HOME/.cache/mozilla/firefox/"*"/cache2/"* 2>/dev/null
+rm -rf "$HOME/.cache/mozilla/firefox/"*"/startupCache/"* 2>/dev/null
+rm -rf "$HOME/.cache/chromium/"* 2>/dev/null
+rm -rf "$HOME/.cache/google-chrome/"* 2>/dev/null
+echo "  OK"
+
+# 5. Papelera
+echo "[5/7] Papelera..."
+rm -rf "$HOME/.local/share/Trash/"* 2>/dev/null
+echo "  OK"
+
+# 6. Archivos temporales viejos (+7 dias)
+echo "[6/7] Archivos temporales (/tmp)..."
+find /tmp -type f -atime +7 -delete 2>/dev/null && echo "  OK" || echo "  - (parcial, sin sudo)"
+
+# 7. Liberar RAM (cache de paginas)
+echo "[7/7] Liberar RAM..."
+sync
+echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null 2>&1 && echo "  OK" || echo "  - (requiere sudo)"
+
+echo
+echo "=== COMPLETADO ==="
+free -h | grep Mem

@@ -1,0 +1,214 @@
+#!/bin/bash
+# 🧠 Nexo Memory System - Aprendizaje persistente
+# Uso: nexo-memory [load|save|learn|log|status]
+
+MEMORY_DIR="$HOME/.nexo-memory"
+MEMORY_FILE="$MEMORY_DIR/memory.json"
+LOG_DIR="$MEMORY_DIR/log"
+LEARN_DIR="$MEMORY_DIR/learned"
+
+ensure_dirs() {
+  mkdir -p "$MEMORY_DIR" "$LOG_DIR" "$LEARN_DIR"
+  [[ -f "$MEMORY_FILE" ]] || {
+    echo '{"version":1,"last_updated":"","nexo":{"name":"Nexo","creator":"mikuyasha"},"user":{"name":"miku","preferences":{},"facts":[]},"network":{"devices":{}},"learned_patterns":{"user_habits":[],"common_tasks":[],"errors_fixes":[],"improvements":[]},"pending_actions":[]}' > "$MEMORY_FILE"
+  }
+}
+
+case "${1:-load}" in
+  load)
+    # Cargar memoria y mostrar resumen para el asistente
+    ensure_dirs
+    echo "=== 🧠 NEXO MEMORY ==="
+    echo "Última actualización: $(jq -r '.last_updated' "$MEMORY_FILE" 2>/dev/null || echo 'desconocido')"
+    echo ""
+    
+    # Datos del usuario (desde JSON heredado)
+    echo "--- USUARIO (memory.json) ---"
+    jq -r '.user.name + " (facts: " + (.user.facts | length | tostring) + ")"' "$MEMORY_FILE" 2>/dev/null
+    FACTS=$(jq -r '.user.facts[]' "$MEMORY_FILE" 2>/dev/null)
+    if [[ -n "$FACTS" ]]; then
+      echo "$FACTS" | while IFS= read -r f; do echo "  • $f"; done
+    fi
+    
+    echo ""
+    echo "--- WARM PROFILE (knowledge graph) ---"
+    if command -v nexo-graph &>/dev/null && [[ -f "$MEMORY_DIR/graph.db" ]]; then
+      nexo-graph warm-profile 2>/dev/null || echo "  (grafo sin datos)"
+      echo ""
+      echo "--- GRAPH STATS ---"
+      nexo-graph stats 2>/dev/null | tail -5
+    else
+      echo "  (knowledge graph no disponible)"
+    fi
+    
+    echo ""
+    echo "--- RED ---"
+    jq -r '.network.devices | to_entries[] | "  " + .key + " → " + .value.name + " (" + .value.type + ")"' "$MEMORY_FILE" 2>/dev/null
+    
+    # Dispositivos que NO bloquear
+    NO_BLOCK=$(jq -r '.network.do_not_block[]' "$MEMORY_FILE" 2>/dev/null)
+    if [[ -n "$NO_BLOCK" ]]; then
+      echo "  🛡️ NO BLOQUEAR:"
+      echo "$NO_BLOCK" | while IFS= read -r d; do echo "    • $d"; done
+    fi
+    
+    echo ""
+    echo "--- PATRONES APRENDIDOS ---"
+    TASKS=$(jq -r '.learned_patterns.common_tasks | length' "$MEMORY_FILE" 2>/dev/null)
+    HABITS=$(jq -r '.learned_patterns.user_habits | length' "$MEMORY_FILE" 2>/dev/null)
+    echo "  Tareas comunes aprendidas: $TASKS"
+    echo "  Hábitos del usuario: $HABITS"
+    
+    echo ""
+    echo "--- PENDIENTES ---"
+    jq -r '.pending_actions[]? | "  [\(.status)] \(.task): \(.description)"' "$MEMORY_FILE" 2>/dev/null
+    
+    echo ""
+    echo "--- IDENTIDAD ---"
+    jq -r '"  Yo soy \(.nexo.name), asistente de \(.nexo.creator)"' "$MEMORY_FILE" 2>/dev/null
+    
+    echo ""
+    echo "=== RECIENTES (graph) ==="
+    if command -v nexo-graph &>/dev/null && [[ -f "$MEMORY_DIR/graph.db" ]]; then
+      nexo-graph recent 2>/dev/null
+    fi
+    echo "=== FIN MEMORY ==="
+    ;;
+    
+  save)
+    # Guardar un aprendizaje nuevo
+    # Uso: nexo-memory save "tipo" "valor"
+    # tipo: fact|habit|task|error|improvement|pending
+    ensure_dirs
+    TYPE="${2:-fact}"
+    VALUE="${3:-}"
+    [[ -z "$VALUE" ]] && echo "❌ Uso: nexo-memory save <tipo> <valor>" && exit 1
+    
+    case "$TYPE" in
+      fact)
+        jq --arg v "$VALUE" '.user.facts += [$v]' "$MEMORY_FILE" > "${MEMORY_FILE}.tmp" && mv "${MEMORY_FILE}.tmp" "$MEMORY_FILE"
+        # También agregar al knowledge graph
+        if command -v nexo-graph &>/dev/null; then
+          FACT_NUM=$(jq '.user.facts | length' "$MEMORY_FILE")
+          nexo-graph add user "Fact $FACT_NUM" "$VALUE" 2>/dev/null
+        fi
+        echo "✅ Hecho aprendido: $VALUE"
+        ;;
+      habit)
+        jq --arg v "$VALUE" '.learned_patterns.user_habits += [$v]' "$MEMORY_FILE" > "${MEMORY_FILE}.tmp" && mv "${MEMORY_FILE}.tmp" "$MEMORY_FILE"
+        echo "✅ Hábito registrado: $VALUE"
+        ;;
+      task)
+        jq --arg v "$VALUE" '.learned_patterns.common_tasks += [$v]' "$MEMORY_FILE" > "${MEMORY_FILE}.tmp" && mv "${MEMORY_FILE}.tmp" "$MEMORY_FILE"
+        echo "✅ Tarea aprendida: $VALUE"
+        ;;
+      error)
+        jq --arg v "$VALUE" '.learned_patterns.errors_fixes += [$v]' "$MEMORY_FILE" > "${MEMORY_FILE}.tmp" && mv "${MEMORY_FILE}.tmp" "$MEMORY_FILE"
+        echo "✅ Error registrado: $VALUE"
+        ;;
+      improvement)
+        jq --arg v "$VALUE" '.learned_patterns.improvements += [$v]' "$MEMORY_FILE" > "${MEMORY_FILE}.tmp" && mv "${MEMORY_FILE}.tmp" "$MEMORY_FILE"
+        if command -v nexo-graph &>/dev/null; then
+          nexo-graph add world "Mejora" "$VALUE" 2>/dev/null
+        fi
+        echo "✅ Mejora registrada: $VALUE"
+        ;;
+      pending)
+        DESC="${3:-}"
+        [[ -z "$DESC" ]] && echo "❌ Falta descripción" && exit 1
+        TASK="${4:-general}"
+        jq --arg t "$TASK" --arg d "$DESC" '.pending_actions += [{"task": $t, "description": $d, "added": (now | strftime("%Y-%m-%d")), "status": "pending"}]' "$MEMORY_FILE" > "${MEMORY_FILE}.tmp" && mv "${MEMORY_FILE}.tmp" "$MEMORY_FILE"
+        if command -v nexo-graph &>/dev/null; then
+          nexo-graph add world "Pendiente: ${DESC:0:40}" "$DESC" 2>/dev/null
+        fi
+        echo "✅ Pendiente registrado: $DESC"
+        ;;
+      *)
+        echo "❌ Tipo inválido: fact|habit|task|error|improvement|pending"
+        exit 1
+        ;;
+    esac
+    
+    # Actualizar timestamp
+    jq --arg d "$(date -Iseconds)" '.last_updated = $d' "$MEMORY_FILE" > "${MEMORY_FILE}.tmp" && mv "${MEMORY_FILE}.tmp" "$MEMORY_FILE"
+    ;;
+    
+  log)
+    # Registrar una interacción
+    ensure_dirs
+    LOGFILE="$LOG_DIR/$(date +%Y-%m-%d).log"
+    echo "[$(date -Iseconds)] ${2:-info}: ${3:-}" >> "$LOGFILE"
+    echo "✅ Interacción registrada"
+    ;;
+    
+  learn)
+    # Auto-aprendizaje: analizar logs y extraer patrones
+    ensure_dirs
+    echo "🔄 Analizando logs para aprender..."
+    
+    # Extraer comandos más usados del historial
+    HISTORY_FILE="$HOME/.bash_history"
+    if [[ -f "$HISTORY_FILE" ]]; then
+      TOP_CMDS=$(tail -200 "$HISTORY_FILE" | sort | uniq -c | sort -rn | head -10)
+      echo "$TOP_CMDS" > "$LEARN_DIR/top_commands.txt"
+      echo "✅ Comandos frecuentes guardados"
+    fi
+    
+    # Analizar temperatura (si hay logs)
+    TEMP_LOG="/tmp/temp-monitor.log"
+    if [[ -f "$TEMP_LOG" ]]; then
+      AVG_TEMP=$(awk '{sum+=$1; count++} END {if(count>0) printf "%.0f", sum/count}' "$TEMP_LOG" 2>/dev/null)
+      echo "$AVG_TEMP" > "$LEARN_DIR/avg_temp.txt"
+      echo "✅ Temperatura promedio: ${AVG_TEMP}°C"
+    fi
+    
+    echo "✅ Auto-análisis completado"
+    ;;
+    
+  status)
+    # Mostrar estado del sistema de memoria
+    ensure_dirs
+    echo "🧠 Nexo Memory System"
+    echo "====================="
+    echo "Directorio: $MEMORY_DIR"
+    echo "Archivo: $MEMORY_FILE"
+    echo ""
+    echo "📊 Estadísticas:"
+    echo "  Hechos del usuario: $(jq '.user.facts | length' "$MEMORY_FILE" 2>/dev/null || echo 0)"
+    echo "  Dispositivos en red: $(jq '.network.devices | length' "$MEMORY_FILE" 2>/dev/null || echo 0)"
+    echo "  Tareas aprendidas: $(jq '.learned_patterns.common_tasks | length' "$MEMORY_FILE" 2>/dev/null || echo 0)"
+    echo "  Hábitos: $(jq '.learned_patterns.user_habits | length' "$MEMORY_FILE" 2>/dev/null || echo 0)"
+    echo "  Errores registrados: $(jq '.learned_patterns.errors_fixes | length' "$MEMORY_FILE" 2>/dev/null || echo 0)"
+    echo "  Mejoras: $(jq '.learned_patterns.improvements | length' "$MEMORY_FILE" 2>/dev/null || echo 0)"
+    echo "  Pendientes: $(jq '.pending_actions | length' "$MEMORY_FILE" 2>/dev/null || echo 0)"
+    echo ""
+    echo "📋 Logs de interacciones: $(ls "$LOG_DIR" 2>/dev/null | wc -l) días"
+    echo "🎓 Lecciones aprendidas: $(ls "$LEARN_DIR" 2>/dev/null | wc -l) archivos"
+    ;;
+    
+  graph)
+    # Pasar comando a nexo-graph directamente
+    shift
+    if command -v nexo-graph &>/dev/null; then
+      exec nexo-graph "$@"
+    else
+      echo "❌ nexo-graph no está instalado"
+      exit 1
+    fi
+    ;;
+    
+  *)
+    echo "🧠 Nexo Memory System + Knowledge Graph"
+    echo "Uso: nexo-memory [comando]"
+    echo ""
+    echo "Comandos:"
+    echo "  load        - Cargar y mostrar memoria + warm profile"
+    echo "  save <tipo> <valor>  - Guardar aprendizaje"
+    echo "    tipos: fact, habit, task, error, improvement, pending"
+    echo "  log [nivel] [msg]   - Registrar interacción"
+    echo "  learn       - Auto-aprendizaje automático"
+    echo "  status      - Estado del sistema"
+    echo "  graph ...   - Pasar comando a nexo-graph"
+    echo "               (add, search, warm-profile, tree, stats, etc.)"
+    ;;
+esac
