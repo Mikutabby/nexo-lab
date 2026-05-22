@@ -69,7 +69,6 @@ Nexo está creado para PCs modestas. No necesitas una GPU cara ni 16 GB de RAM.
 - **CPU**: governor `performance` + servicio systemd persistente
 - **RAM**: zram con zstd, swappiness 10, vfs_cache_pressure 200
 - **Disco**: noatime, scheduler BFQ, read-ahead 8 MB
-- **Navegador**: Falkon Rápido (~44 MB RAM), Chromium eliminado por pesado
 - **DNS**: Cloudflare 1.1.1.1 (~133 ms resolución)
 - **Background**: sin animaciones, wallpaper estático
 - **Inicio**: servicios innecesarios deshabilitados (~15s ahorrados)
