@@ -1,12 +1,49 @@
-# Datos locales (no subir al repo)
-*.db
-*.json
-*.pkl
-*.yml
+# 🧠 Nexo 2.0 — .gitignore
+
+# Python
 __pycache__/
-*.pyc
-learned/
-log/
-.DS_Store
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Config local (contiene preferencias del usuario)
+config/config.json
+config/api_keys.json
+config/user_profile.json
+config/smart_home.json
+config/goals.json
+config/scheduled_tasks.json
+
+# Data / Memoria local
+.data/
+memory/*.json
+!memory/__init__.py
+!memory/memory_manager.py
+
+# Estado
+*.state
+morning_brief_state.json
+
+# Entornos virtuales
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
 *.swp
 *.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+/tmp/
+
+# Keepalive
+/tmp/nexo-keepalive.pid
+/tmp/nexo-keepalive.log

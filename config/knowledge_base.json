@@ -1,0 +1,32 @@
+{
+  "entries": [
+    {
+      "id": "e1779570033",
+      "title": "me gusta el café",
+      "content": "me gusta el café",
+      "type": "note",
+      "tags": [],
+      "created": "2026-05-23T16:00:33.797386",
+      "updated": "2026-05-23T16:00:33.797465"
+    },
+    {
+      "id": "e1779571195",
+      "title": "mi color favorito es azul",
+      "content": "mi color favorito es azul",
+      "type": "note",
+      "tags": [],
+      "created": "2026-05-23T16:19:55.283342",
+      "updated": "2026-05-23T16:19:55.283391"
+    },
+    {
+      "id": "e1779571216",
+      "title": "mi color favorito es azul",
+      "content": "mi color favorito es azul",
+      "type": "note",
+      "tags": [],
+      "created": "2026-05-23T16:20:16.301241",
+      "updated": "2026-05-23T16:20:16.301287"
+    }
+  ],
+  "last_updated": "2026-05-23T16:20:16.301473"
+}
