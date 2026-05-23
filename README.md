@@ -5,7 +5,7 @@
 
 Nexo es un ecosistema de scripts y configuraciones que transforman una PC Linux en un asistente del hogar con **memoria persistente**, **reconocimiento facial**, **control por voz**, **monitoreo del sistema** y **auto-aprendizaje**.
 
-Creado originalmente para un Intel Celeron 847 con 4 GB de RAM — está optimizado para hardware modesto.
+Creado originalmente para un Intel Celeron 847 con 4 GB de RAM — está optimizado para **cualquier hardware**, desde una netbook vieja hasta un Ryzen 9.
 
 ### 📋 Distribuciones soportadas
 | Compatible | No compatible |
@@ -53,17 +53,18 @@ Creado originalmente para un Intel Celeron 847 con 4 GB de RAM — está optimiz
 
 ---
 
-## 🖥️ Hecho para tu hardware
+## 🖥️ Funciona en cualquier PC
 
-Nexo está creado para PCs modestas. No necesitas una GPU cara ni 16 GB de RAM.
+Nexo está creado para **cualquier PC con Linux** — desde una netbook vieja (Celeron, Atom) hasta un ultrabook moderno (Core i7, Ryzen 7).  
+No necesitas una GPU cara ni 16 GB de RAM. Mientras corra Linux con systemd, Nexo funciona.
 
 | Componente | Mínimo | Recomendado |
 |------------|--------|-------------|
-| CPU | 2 cores @ 1.0 GHz | Intel Celeron 847 (1.1 GHz) |
-| RAM | 2 GB | 4 GB |
-| Disco | 10 GB libres | HDD 500 GB |
-| GPU | Cualquier Intel HD | Intel HD Graphics 2000 |
-| SO | Linux con systemd | MX Linux / XFCE |
+| CPU | Cualquier x86_64 de 2+ cores | Intel Core / AMD Ryzen (cualquier generación) |
+| RAM | 2 GB | 4 GB o más |
+| Disco | 5 GB libres | 20 GB libres o más |
+| GPU | Cualquier integrada o dedicada | La que tengas — Nexo apenas usa GPU |
+| SO | Linux con systemd + bash | MX Linux, Ubuntu, Debian, Fedora, Arch… |
 
 ### Optimizaciones incluidas
 - **CPU**: governor `performance` + servicio systemd persistente
@@ -77,6 +78,8 @@ Nexo está creado para PCs modestas. No necesitas una GPU cara ni 16 GB de RAM.
 
 ## 🚀 Instalación rápida
 
+### Opción 1: Clonar con Git (recomendado)
+
 ```bash
 git clone https://github.com/Mikutabby/nexo-lab.git
 cd nexo-lab
@@ -84,17 +87,64 @@ chmod +x install.sh
 ./install.sh
 ```
 
-El instalador te guiará por:
-1. Copia de scripts a `~/.local/bin/`
-2. Configuración del agente OpenCode
-3. Instalación de dependencias (Python, espeak, etc.)
-4. Configuración de servicios systemd
-5. Inicialización del knowledge graph
+> **Nota:** El repo es **público** — `git clone` no pide usuario ni contraseña.  
+> Si GitHub te pide credenciales, es porque estás intentando hacer `git push` (escribir cambios).  
+> Para solo instalar, clonar es anónimo y automático. ✅
 
-### Dependencias opcionales
-- **Ollama** — para embeddings semánticos, diary summariser y evaluator
-- **Reconocimiento facial** — requiere OpenCV y face_recognition
-- **gTTS / edge-tts** — para TTS por cloud (alternativa a espeak local)
+### Opción 2: Descargar ZIP (sin Git)
+
+Si no tenés Git o preferís bajarlo manual:
+
+```bash
+wget https://github.com/Mikutabby/nexo-lab/archive/refs/heads/main.zip
+unzip main.zip
+cd nexo-lab-main
+chmod +x install.sh
+./install.sh
+```
+
+### Opción 3: Desde tu PC
+
+Si ya lo tenés clonado o descargado, directamente:
+
+```bash
+cd nexo-lab
+chmod +x install.sh
+./install.sh
+```
+
+---
+
+### ¿Qué hace el instalador?
+
+1. Pide tu contraseña **sudo** (para instalar dependencias y configurar servicios)
+2. Detecta tu gestor de paquetes (apt, dnf, pacman, zypper)
+3. Instala dependencias del sistema (espeak-ng, python3, sqlite3, jq, curl)
+4. Instala dependencias Python (gTTS, edge-tts para TTS por cloud)
+5. Copia todos los scripts a `~/.local/bin/`
+6. Configura el Knowledge Graph (memoria persistente)
+7. Activa el servicio de rendimiento CPU (governor `performance`)
+8. Configura sudoers para el monitor de temperatura
+9. Instala el crontab del sistema
+10. Te ofrece instalar **Ollama** para funciones avanzadas (embeddings, diary, evaluator)
+
+### 📦 Dependencias opcionales
+
+| Dependencia | Para qué sirve | Cómo instalarla |
+|-------------|---------------|-----------------|
+| **Ollama** | Embeddings semánticos, diary, evaluator | El instalador te lo ofrece automáticamente |
+| **OpenCV + face_recognition** | Reconocimiento facial | `pip install --user opencv-python face_recognition` |
+| **gTTS / edge-tts** | TTS por cloud (voz más natural) | El instalador las instala automáticamente |
+
+### ⚠️ Solución de problemas comunes
+
+| Problema | Causa | Solución |
+|----------|-------|----------|
+| `git clone` pide usuario/contraseña | Querés pushear o tenés un credential helper configurado | Usá la Opción 2 (ZIP) o configurá SSH |
+| `sudo: contraseña incorrecta` | Escribiste mal la contraseña | Ejecutá de nuevo el instalador con cuidado |
+| Ollama no se instala | No tenés curl o el script falló | Instalalo manual: `curl -fsSL https://ollama.com/install.sh \| sh` |
+| El TTS no suena | PulseAudio no está corriendo | Revisá `pulseaudio --start` o tu configuración de audio |
+| `face-recognize.py` no funciona | Falta OpenCV | `pip install --user opencv-python face_recognition` |
 
 ---
 
