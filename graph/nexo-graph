@@ -744,9 +744,11 @@ def cmd_fts(args):
 
 
 def cmd_embed(args):
-    """Generar embedding para uno o todos los nodos."""
+    """Generar embedding para uno o todos los nodos.
+    Uso: nexo-graph embed [id] | nexo-graph embed --all
+    """
     store = GraphStore()
-    if args:
+    if args and args[0] != "--all":
         # Embed un nodo específico
         nid = args[0]
         node = store.get_node(nid)

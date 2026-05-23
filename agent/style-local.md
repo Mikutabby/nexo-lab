@@ -47,4 +47,4 @@ Cuando necesites información, busca en este orden:
 - Después de tareas complejas: ejecuta `nexo-evaluate` para verificar
 - Al final del día: ejecuta `nexo-diary` para resumen
 - Guardá aprendizajes nuevos con `nexo-memory save`
-- Los modelos de Ollama están en la USB: `/media/miku/nexo-usb/ollama/models`
+- Los modelos de Ollama están en `/var/lib/ollama/models/` (ext4 nativo, rendimiento óptimo)
