@@ -1,8 +1,8 @@
 #!/bin/bash
-# 🧠 Nexo Ecosystem — Instalador automático
+# 🧠 Nexo Lab — Instalador automático
 # Uso: ./install.sh [--help]
 
-set -e
+set -o pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -23,7 +23,7 @@ MEMORY_DIR="$HOME/.nexo-memory"
 
 echo ""
 echo "========================================"
-echo "  🧠 Nexo Ecosystem Installer"
+echo "  🧠 Nexo Lab Installer"
 echo "========================================"
 echo ""
 
@@ -32,6 +32,40 @@ if [[ "$(uname)" != "Linux" ]]; then
     err "Este instalador solo funciona en Linux"
     exit 1
 fi
+
+# ── Verificar source files ──────────────────────────────────────────────
+info "Verificando archivos fuente..."
+MISSING_FILES=0
+for f in \
+    "$SCRIPT_DIR/system/check-identity.sh" \
+    "$SCRIPT_DIR/system/face-recognize.py" \
+    "$SCRIPT_DIR/system/temp-monitor.sh" \
+    "$SCRIPT_DIR/system/temp-cancel.sh" \
+    "$SCRIPT_DIR/system/limpiar" \
+    "$SCRIPT_DIR/system/falkon-rapido" \
+    "$SCRIPT_DIR/graph/nexo-graph" \
+    "$SCRIPT_DIR/graph/nexo-memory" \
+    "$SCRIPT_DIR/tools/nexo-tools" \
+    "$SCRIPT_DIR/tools/nexo-diary" \
+    "$SCRIPT_DIR/tools/nexo-evaluate" \
+    "$SCRIPT_DIR/tools/nexo-wake" \
+    "$SCRIPT_DIR/voice/say.sh" \
+    "$SCRIPT_DIR/voice/voice.sh" \
+    "$SCRIPT_DIR/agent/asistente.md" \
+    "$SCRIPT_DIR/backup/migrar-miku.sh" \
+    "$SCRIPT_DIR/config/cpu-performance.service" \
+    "$SCRIPT_DIR/config/sudoers.temp-monitor" \
+    "$SCRIPT_DIR/config/miku-crontab.txt"; do
+    if [[ ! -f "$f" ]]; then
+        err "Falta archivo: $f"
+        MISSING_FILES=$((MISSING_FILES + 1))
+    fi
+done
+if [[ $MISSING_FILES -gt 0 ]]; then
+    err "Faltan $MISSING_FILES archivos. Asegurate de clonar el repo completo."
+    exit 1
+fi
+ok "Todos los archivos fuente presentes"
 
 # ── Solicitar sudo password ─────────────────────────────────────────────
 echo -n "🔑 Ingresá tu contraseña sudo (se usará para servicios systemd): "
@@ -49,6 +83,43 @@ info "Creando directorios..."
 mkdir -p "$BIN_DIR" "$AGENT_DIR" "$MEMORY_DIR"
 ok "Directorios creados"
 
+# ── Detectar gestor de paquetes ──────────────────────────────────────────
+if command -v apt &>/dev/null; then
+    PKG_MANAGER="apt"
+    INSTALL_CMD="apt install -y"
+elif command -v dnf &>/dev/null; then
+    PKG_MANAGER="dnf"
+    INSTALL_CMD="dnf install -y"
+elif command -v pacman &>/dev/null; then
+    PKG_MANAGER="pacman"
+    INSTALL_CMD="pacman -S --noconfirm"
+elif command -v zypper &>/dev/null; then
+    PKG_MANAGER="zypper"
+    INSTALL_CMD="zypper install -y"
+else
+    PKG_MANAGER="unknown"
+    INSTALL_CMD=""
+fi
+
+# ── Instalar dependencias del sistema ────────────────────────────────────
+info "Instalando dependencias del sistema..."
+if [[ "$PKG_MANAGER" == "apt" ]]; then
+    echo "$SUDO_PASS" | sudo -S apt update -qq 2>/dev/null
+    echo "$SUDO_PASS" | sudo -S $INSTALL_CMD espeak-ng mpg123 python3 python3-pip jq sqlite3 curl 2>/dev/null
+    ok "Dependencias de sistema instaladas"
+elif [[ -n "$INSTALL_CMD" ]]; then
+    warn "Dependencias no instaladas automáticamente. Ejecutá:"
+    warn "  sudo $INSTALL_CMD espeak-ng mpg123 python3 python3-pip jq sqlite3 curl"
+else
+    warn "Gestor de paquetes no detectado. Instalá manualmente: espeak-ng, python3, pip, jq, sqlite3, curl"
+fi
+
+# ── Instalar dependencias Python ─────────────────────────────────────────
+info "Instalando dependencias Python..."
+python3 -m pip install --quiet --user gtts edge-tts 2>/dev/null && \
+    ok "Dependencias Python instaladas (gTTS, edge-tts)" || \
+    warn "No se pudieron instalar gTTS/edge-tts — se usará espeak-ng local"
+
 # ── Copiar scripts ─────────────────────────────────────────────────────
 info "Copiando scripts..."
 
@@ -56,7 +127,8 @@ info "Copiando scripts..."
 cp "$SCRIPT_DIR/system/check-identity.sh" "$BIN_DIR/"
 cp "$SCRIPT_DIR/system/face-recognize.py" "$BIN_DIR/"
 cp "$SCRIPT_DIR/system/temp-monitor.sh" "$BIN_DIR/"
-sed "s/\$SUDO_PASS/$SUDO_PASS/g" "$SCRIPT_DIR/system/temp-cancel.sh" > "$BIN_DIR/temp-cancel.sh"
+# temp-cancel.sh: reemplazar placeholder de password
+sed "s/SUDO_PASS_PLACEHOLDER/$SUDO_PASS/g" "$SCRIPT_DIR/system/temp-cancel.sh" > "$BIN_DIR/temp-cancel.sh"
 cp "$SCRIPT_DIR/system/limpiar" "$BIN_DIR/"
 cp "$SCRIPT_DIR/system/falkon-rapido" "$BIN_DIR/"
 
@@ -68,21 +140,24 @@ cp "$SCRIPT_DIR/graph/nexo-memory" "$BIN_DIR/"
 cp "$SCRIPT_DIR/tools/nexo-tools" "$BIN_DIR/"
 cp "$SCRIPT_DIR/tools/nexo-diary" "$BIN_DIR/"
 cp "$SCRIPT_DIR/tools/nexo-evaluate" "$BIN_DIR/"
-sed "s|\$HOME|$HOME|g" "$SCRIPT_DIR/tools/nexo-wake" > "$BIN_DIR/nexo-wake"
+# nexo-wake: reemplazar HOME placeholder
+sed "s|HOME_PLACEHOLDER|$HOME|g" "$SCRIPT_DIR/tools/nexo-wake" > "$BIN_DIR/nexo-wake"
 
 # voice/
 cp "$SCRIPT_DIR/voice/say.sh" "$OPENCODE_DIR/"
 cp "$SCRIPT_DIR/voice/voice.sh" "$OPENCODE_DIR/"
 
-# agent/
-sed -e "s/\*\*TU_PASSWORD\*\*/$SUDO_PASS/g" \
-    -e "s|\\\$HOME|$HOME|g" \
+# agent/ — reemplazar password y home en asistente.md
+sed -e "s/SUDO_PASS_PLACEHOLDER/$SUDO_PASS/g" \
+    -e "s|HOME_PLACEHOLDER|$HOME|g" \
     "$SCRIPT_DIR/agent/asistente.md" > "$AGENT_DIR/asistente.md"
 
 # backup
 cp "$SCRIPT_DIR/backup/migrar-miku.sh" "$HOME/"
 
-chmod +x "$BIN_DIR"/* "$OPENCODE_DIR/say.sh" "$OPENCODE_DIR/voice.sh"
+# Dar permisos de ejecución (solo a archivos, no directorios)
+find "$BIN_DIR" -maxdepth 1 -type f -exec chmod +x {} \;
+chmod +x "$OPENCODE_DIR/say.sh" "$OPENCODE_DIR/voice.sh" 2>/dev/null || true
 ok "Scripts copiados y ejecutables"
 
 # ── Inicializar Knowledge Graph ────────────────────────────────────────
@@ -94,29 +169,32 @@ ok "Knowledge Graph inicializado"
 info "Configurando servicios systemd..."
 
 # CPU Performance
-cp "$SCRIPT_DIR/config/cpu-performance.service" /tmp/cpu-performance.service
-echo "$SUDO_PASS" | sudo -S cp /tmp/cpu-performance.service /etc/systemd/system/ 2>/dev/null
+echo "$SUDO_PASS" | sudo -S cp "$SCRIPT_DIR/config/cpu-performance.service" /etc/systemd/system/ 2>/dev/null
 echo "$SUDO_PASS" | sudo -S systemctl daemon-reload 2>/dev/null
 echo "$SUDO_PASS" | sudo -S systemctl enable cpu-performance.service 2>/dev/null
-echo "$SUDO_PASS" | sudo -S systemctl start cpu-performance.service 2>/dev/null
-ok "Servicio CPU Performance configurado"
+echo "$SUDO_PASS" | sudo -S systemctl start cpu-performance.service 2>/dev/null && \
+    ok "Servicio CPU Performance configurado" || \
+    warn "No se pudo configurar CPU Performance (posiblemente no soportado)"
 
-# Sudoers para temp-monitor
-TEMP_SUDOERS="/tmp/nexo-temp-sudoers"
-sed "s/\$SUDO_PASS/$SUDO_PASS/g" "$SCRIPT_DIR/config/sudoers.temp-monitor" > "$TEMP_SUDOERS"
-echo "$SUDO_PASS" | sudo -S cp "$TEMP_SUDOERS" /etc/sudoers.d/temp-monitor 2>/dev/null
-echo "$SUDO_PASS" | sudo -S chmod 440 /etc/sudoers.d/temp-monitor 2>/dev/null
-ok "Sudoers para temp-monitor configurado"
+# Sudoers para temp-monitor (reemplazar USERNAME por el usuario real)
+sed "s/USERNAME/$USER/g" "$SCRIPT_DIR/config/sudoers.temp-monitor" | \
+    echo "$SUDO_PASS" | sudo -S tee /etc/sudoers.d/temp-monitor >/dev/null 2>&1
+echo "$SUDO_PASS" | sudo -S chmod 440 /etc/sudoers.d/temp-monitor 2>/dev/null && \
+    ok "Sudoers para temp-monitor configurado" || \
+    warn "No se pudo configurar sudoers para temp-monitor"
 
-# Crontab
-crontab "$SCRIPT_DIR/config/miku-crontab.txt" 2>/dev/null || true
-ok "Crontab configurado"
+# Crontab (expandir $HOME antes de instalar)
+if [[ -f "$SCRIPT_DIR/config/miku-crontab.txt" ]]; then
+    sed "s|\$HOME|$HOME|g" "$SCRIPT_DIR/config/miku-crontab.txt" | crontab - 2>/dev/null && \
+        ok "Crontab configurado" || \
+        warn "No se pudo configurar crontab"
+fi
 
 # ── Verificar dependencias ──────────────────────────────────────────────
 info "Verificando dependencias..."
 
 DEPS_MISSING=""
-for cmd in python3 jq sqlite3; do
+for cmd in python3 jq sqlite3 espeak-ng; do
     if ! command -v "$cmd" &>/dev/null; then
         DEPS_MISSING="$DEPS_MISSING $cmd"
     fi
@@ -124,7 +202,6 @@ done
 
 if [[ -n "$DEPS_MISSING" ]]; then
     warn "Faltan dependencias:$DEPS_MISSING"
-    warn "Instalálas con: sudo apt install$DEPS_MISSING"
 else
     ok "Todas las dependencias básicas presentes"
 fi
@@ -135,11 +212,30 @@ if command -v ollama &>/dev/null; then
 else
     warn "Ollama no detectado — los embeddings semánticos y diary no funcionarán"
     warn "Instalá Ollama: curl -fsSL https://ollama.com/install.sh | sh"
+    echo ""
+    echo -n "❓ ¿Querés instalar Ollama ahora? (s/N): "
+    read -r INSTALL_OLLAMA
+    if [[ "$INSTALL_OLLAMA" =~ ^[sS]$ ]]; then
+        info "Instalando Ollama..."
+        curl -fsSL https://ollama.com/install.sh | sh 2>&1 || warn "Fallo la instalación de Ollama"
+        if command -v ollama &>/dev/null; then
+            ollama pull nomic-embed-text 2>/dev/null &
+            ok "Ollama instalado. nomic-embed-text descargándose en background"
+        fi
+    fi
+fi
+
+# ── Verificar TTS ────────────────────────────────────────────────────────
+info "Probando TTS..."
+if timeout 5 espeak-ng "Hola" 2>/dev/null; then
+    ok "TTS funciona (espeak-ng)"
+else
+    warn "TTS no funciona — revisá espeak-ng o PulseAudio"
 fi
 
 echo ""
 echo "========================================"
-echo "  ✅ Nexo Ecosystem instalado"
+echo "  ✅ Nexo Lab instalado"
 echo "========================================"
 echo ""
 echo "   📍 Scripts:    $BIN_DIR/"
@@ -148,15 +244,16 @@ echo "   🤖 Agente:     $AGENT_DIR/asistente.md"
 echo "   🎤 Voz:        $OPENCODE_DIR/"
 echo ""
 echo "   Comandos disponibles:"
-echo "     nexo-graph      — Knowledge Graph"
-echo "     nexo-memory     — Memoria persistente"
+echo "     nexo-graph      — Knowledge Graph (3 ramas + embeddings)"
+echo "     nexo-memory     — Memoria persistente + auto-aprendizaje"
 echo "     nexo-tools      — Tool Registry"
-echo "     nexo-diary      — Diary Summariser"
-echo "     nexo-evaluate   — Evaluator"
+echo "     nexo-diary      — Diary Summariser (Ollama)"
+echo "     nexo-evaluate   — Evaluator (Ollama)"
 echo "     nexo-wake       — Wake Word Detection"
 echo "     limpiar         — Limpiador del sistema"
 echo "     face-recognize  — Reconocimiento facial"
 echo "     temp-monitor    — Monitor de temperatura"
 echo ""
 echo "   📖 README: $SCRIPT_DIR/README.md"
+echo "   🌐 GitHub: https://github.com/Mikutabby/nexo-lab"
 echo ""

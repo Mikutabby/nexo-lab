@@ -40,41 +40,10 @@ fi
 
 echo "🔄 Transcribiendo..." >&2
 
-# VAD: detectar si hay voz antes de llamar a Google API
-python3 -c "
-import sys, json, os
-sys.path.insert(0, os.path.expanduser('~/.local/bin/miku-eco'))
-from vad_utils import has_speech
-
-has_voice, pct = has_speech('$OUTFILE', aggressiveness=3)
-# stdout: JSON para bash
-print(json.dumps({'has_voice': has_voice, 'pct': round(pct, 1)}))
-" > /tmp/vad_result.json 2>/dev/null
-
-# Verificar VAD
-VAD_HAS_VOICE=$(python3 -c "import json; d=json.load(open('/tmp/vad_result.json')); print('true' if d['has_voice'] else 'false')" 2>/dev/null)
-VAD_PCT=$(python3 -c "import json; d=json.load(open('/tmp/vad_result.json')); print(d['pct'])" 2>/dev/null)
-
-echo "📊 VAD: voz=$VAD_HAS_VOICE ($VAD_PCT% frames)" >&2
-
-if [ "$VAD_HAS_VOICE" != "true" ]; then
-    echo "⏹️  Sin voz detectada, omitiendo API" >&2
-    rm -f "$OUTFILE" /tmp/vad_result.json
-    exit 0  # Salida exitosa pero sin texto
-fi
-
-# Recortar silencio antes de enviar a Google (mejora precisión)
-python3 -c "
-import sys, os
-sys.path.insert(0, os.path.expanduser('~/.local/bin/miku-eco'))
-from vad_utils import trim_silence
-
-trim_silence('$OUTFILE', '/tmp/opencode_voice_trimmed.wav', aggressiveness=1)
-" 2>/dev/null
-
-if [ -s "/tmp/opencode_voice_trimmed.wav" ]; then
-    OUTFILE_ORIG="$OUTFILE"
-    OUTFILE="/tmp/opencode_voice_trimmed.wav"
+# Silencio mínimo antes de enviar a Google (evita archivos vacíos)
+if [ ! -s "$OUTFILE" ]; then
+    echo "⏹️  Archivo de audio vacío" >&2
+    exit 1
 fi
 
 # Usar Python speech_recognition
@@ -136,7 +105,7 @@ else:
     print('OK')
 " 2>/dev/null | grep -q "ECHO" && {
         echo "🔇 Eco detectado — ignorando" >&2
-        rm -f "$OUTFILE" "$OUTFILE_ORIG" /tmp/opencode_voice_trimmed.wav /tmp/voice_result.txt /tmp/vad_result.json
+rm -f "$OUTFILE" /tmp/voice_result.txt
         exit 0
     }
     fi

@@ -10,7 +10,8 @@
 LANG_DEFAULT="es"
 
 # Umbral de timeout para TTS cloud (segundos)
-CLOUD_TIMEOUT=30
+# gTTS necesita ~5-12s en conexiones lentas, más playback
+CLOUD_TIMEOUT=15
 
 # Archivos temporales
 TMPDIR="${XDG_RUNTIME_DIR:-/tmp}/opencode_tts"
@@ -189,8 +190,12 @@ try_espeak() {
 }
 
 # === EJECUCIÓN ===
-# gTTS primero (rápido, buena calidad), edge-tts como backup
-try_gtts "$SAY_TEXT" "$LANG" || try_edge_tts "$SAY_TEXT" "$LANG" || try_mbrola "$SAY_TEXT" "$LANG" || try_espeak "$SAY_TEXT" "$LANG"
+# 1. gTTS primero (mejor calidad), timeout generoso para conexiones lentas
+# 2. Si falla, espeak instantáneo como respaldo (sin edge-tts/mbrola, son lentos)
+try_gtts "$SAY_TEXT" "$LANG" || {
+    echo "⚠️ gTTS falló, usando espeak como respaldo" >&2
+    try_espeak "$SAY_TEXT" "$LANG" || true
+}
 
 # Guardar texto hablado para echo detection (voice.sh lo usa)
 echo "$SAY_TEXT" > /tmp/nexo-last-tts.txt

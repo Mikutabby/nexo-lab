@@ -298,7 +298,7 @@ class GraphStore:
                 data=payload,
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=120) as resp:
                 result = _json.loads(resp.read().decode("utf-8"))
                 if "embeddings" in result and result["embeddings"]:
                     return result["embeddings"][0]
@@ -308,9 +308,18 @@ class GraphStore:
     def store_embedding(self, node_id):
         """Generar y guardar embedding para un nodo."""
         node = self.get_node(node_id)
-        if not node or not node["data"]:
+        if not node:
             return False
-        emb = self.generate_embedding(node["data"])
+        # Combinar name + description + data para mejor semántica
+        text_parts = [node.get("name", "")]
+        if node.get("description"):
+            text_parts.append(node["description"])
+        if node.get("data"):
+            text_parts.append(node["data"])
+        text = " | ".join(text_parts).strip()
+        if not text:
+            return False
+        emb = self.generate_embedding(text)
         if emb is None:
             return False
         emb_json = json.dumps(emb)
@@ -656,14 +665,14 @@ def cmd_embed(args):
         if store.store_embedding(nid):
             print("✅ OK")
         else:
-            print("❌ Falló (Ollama no disponible o nodo vacío)")
+            print("❌ Falló (Ollama timeout, no disponible o contenido vacío)")
     else:
         # Embed todos los nodos sin embedding
         with store._lock:
             rows = store.conn.execute(
                 """SELECT id, name FROM memory_nodes
                    WHERE (embedding IS NULL OR embedding = '')
-                   AND data != '' AND id NOT IN ('root', 'user', 'directives', 'world')"""
+                   AND id NOT IN ('root', 'user', 'directives', 'world')"""
             ).fetchall()
             nodes = [dict(r) for r in rows]
         if not nodes:
