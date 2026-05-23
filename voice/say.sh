@@ -193,8 +193,9 @@ try_espeak() {
     }
     rm -f "$outfile"
     # Último recurso: espeak-ng directo sin archivo
-    espeak-ng -v "$voice" -s "$speed" -p 35 -P 65 "$text" 2>/dev/null
-    return $?
+    # También va con setsid para no bloquear
+    setsid espeak-ng -v "$voice" -s "$speed" -p 35 -P 65 "$text" 2>/dev/null &
+    return 0
 }
 
 # === EJECUCIÓN ===
