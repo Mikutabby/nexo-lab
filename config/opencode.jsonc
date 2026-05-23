@@ -1,0 +1,21 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["style-local.md"],
+  "provider": {
+    "ollama": {
+      "options": {
+        "baseURL": "http://localhost:11434/v1",
+        "apiKey": "ollama"
+      },
+      "models": {
+        "llama3.2:1b": {
+          "id": "llama3.2:1b"
+        },
+        "nomic-embed-text": {
+          "id": "nomic-embed-text"
+        }
+      }
+    }
+  },
+  "model": "ollama/llama3.2:1b"
+}
