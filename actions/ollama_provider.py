@@ -77,7 +77,11 @@ def chat(prompt: str, system: str = "") -> str:
         "prompt": prompt,
         "stream": False,
         "keep_alive": "30m",  # mantener modelo en RAM 30min
-        "options": {"num_predict": 200, "temperature": 0.7}
+        "options": {
+            "num_predict": 50,      # respuestas cortas (~10 palabras)
+            "num_ctx": 256,         # contexto mínimo para acelerar
+            "temperature": 0.7
+        }
     }
     if system:
         payload["system"] = system

@@ -277,10 +277,10 @@ class NexoEngine:
         try:
             with ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(_do_ollama)
-                response = future.result(timeout=30)  # timeout 30s
+                response = future.result(timeout=8)  # timeout 8s (bajado de 30s)
                 return response
         except TimeoutError:
-            print("⚠️ Ollama timeout (30s)")
+            print("⚠️ Ollama timeout (8s)")
         except Exception as e:
             print(f"⚠️ Ollama error: {e}")
         return None

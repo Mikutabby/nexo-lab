@@ -144,7 +144,6 @@ try_espeak() {
     local text="$1"
     local lang="$2"
     local voice=""
-    local outfile="$TMPDIR/espeak_$$.wav"
 
     case "$lang" in
         es) voice="es-419" ;;
@@ -154,12 +153,7 @@ try_espeak() {
 
     local speed="155"
     [ "$SPEED" = "slow" ] && speed="110"
-    espeak-ng -v "$voice" -s "$speed" -p 35 -P 65 -w "$outfile" "$text" 2>/dev/null && [ -s "$outfile" ] && {
-        play_detached "$outfile"
-        return 0
-    }
-    rm -f "$outfile"
-    # Último recurso: espeak-ng directo sin archivo
+    # Directo: sin archivo intermedio, arranca al toque (~100ms)
     setsid espeak-ng -v "$voice" -s "$speed" -p 35 -P 65 "$text" 2>/dev/null &
     return 0
 }
@@ -195,16 +189,15 @@ ensure_piper_voice() {
 }
 
 # === EJECUCIÓN ===
-# 1. Piper TTS (local, instantáneo)
-# 2. Si no está instalado, gTTS (cloud)
-# 3. espeak como respaldo universal
+# Prioridad: velocidad ante todo.
+# 1. Piper TTS (local, instantáneo) — si está instalado
+# 2. espeak-ng (local, rápido, sin internet, ~0.5s)
+# 3. gTTS (cloud) solo si lo anterior falla — descarga en background
 try_piper "$SAY_TEXT" "$LANG" || {
-    # Piper no disponible — intentar descargar voz para futuras ocasiones
+    # espeak directo (rápido, ~300ms)
+    try_espeak "$SAY_TEXT" "$LANG" || true
+    # En background: descargar voz Piper para próxima vez
     ensure_piper_voice "$LANG" &
-    try_gtts "$SAY_TEXT" "$LANG" || {
-        echo "⚠️ gTTS falló, usando espeak" >&2
-        try_espeak "$SAY_TEXT" "$LANG" || true
-    }
 }
 
 # Guardar texto hablado para echo detection (voice.sh lo usa)
