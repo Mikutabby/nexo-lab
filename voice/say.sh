@@ -11,7 +11,7 @@ LANG_DEFAULT="es"
 
 # Umbral de timeout para TTS cloud (segundos)
 # gTTS necesita ~5-12s en conexiones lentas, más playback
-CLOUD_TIMEOUT=15
+CLOUD_TIMEOUT=30
 
 # Archivos temporales
 TMPDIR="${XDG_RUNTIME_DIR:-/tmp}/opencode_tts"
