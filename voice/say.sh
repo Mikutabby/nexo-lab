@@ -59,6 +59,30 @@ fi
 # Limpiar texto (quitar comillas que puedan interferir)
 SAY_TEXT=$(echo "$SAY_TEXT" | sed "s/['\"]//g")
 
+# Reproducir audio en proceso desacoplado (setsid) para que sobreviva
+# al timeout del bash tool que mata la shell padre a los 30s.
+play_detached() {
+    local file="$1"
+    setsid bash -c '
+        f="$1"
+        export PULSE_SERVER="unix:/run/user/1000/pulse/native"
+        # Intentar multiples reproductores en orden de preferencia
+        case "$f" in
+            *.mp3)
+                mpg123 --no-gapless -o pulse --quiet "$f" 2>/dev/null || \
+                play -q "$f" 2>/dev/null || \
+                paplay "$f" 2>/dev/null
+                ;;
+            *.wav)
+                aplay -q "$f" 2>/dev/null || \
+                play -q "$f" 2>/dev/null || \
+                paplay "$f" 2>/dev/null
+                ;;
+        esac
+        rm -f "$f"
+    ' _ "$file" &
+}
+
 # === INTENTAR 1: edge-tts (Microsoft Neural TTS) ===
 try_edge_tts() {
     local text="$1"
@@ -88,11 +112,7 @@ asyncio.run(run())
 sys.exit(0)
 PYSCRIPT
     timeout "$CLOUD_TIMEOUT" python3 "$scriptfile" 2>/dev/null && [ -s "$outfile" ] && {
-    # Reproducir con mpg123 (mas estable que play/sox que crashea con SIGFPE en MP3)
-    PULSE_SERVER="unix:/run/user/1000/pulse/native" mpg123 --no-gapless -o pulse --quiet "$outfile" 2>/dev/null || \
-    PULSE_SERVER="unix:/run/user/1000/pulse/native" play -q "$outfile" 2>/dev/null || \
-    PULSE_SERVER="unix:/run/user/1000/pulse/native" paplay "$outfile" 2>/dev/null
-    rm -f "$outfile"
+    play_detached "$outfile"
     return 0
 }
     rm -f "$outfile"
@@ -118,10 +138,7 @@ try:
 except Exception as e:
     sys.exit(1)
 " 2>/dev/null && [ -s "$outfile" ] && {
-    PULSE_SERVER="unix:/run/user/1000/pulse/native" mpg123 --no-gapless -o pulse --quiet "$outfile" 2>/dev/null || \
-    PULSE_SERVER="unix:/run/user/1000/pulse/native" play -q "$outfile" 2>/dev/null || \
-    PULSE_SERVER="unix:/run/user/1000/pulse/native" paplay "$outfile" 2>/dev/null
-    rm -f "$outfile"
+    play_detached "$outfile"
     return 0
 }
     rm -f "$outfile"
@@ -147,10 +164,7 @@ try_mbrola() {
         export XDG_DATA_DIRS="$HOME/.local/share:/usr/share/xfce4:$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:/usr/local/share:/usr/share"
         
         espeak-ng -v "$voice" -w "$outfile" "$text" 2>/dev/null && [ -s "$outfile" ] && {
-            PULSE_SERVER="unix:/run/user/1000/pulse/native" aplay -q "$outfile" 2>/dev/null || \
-            PULSE_SERVER="unix:/run/user/1000/pulse/native" play -q "$outfile" 2>/dev/null || \
-            PULSE_SERVER="unix:/run/user/1000/pulse/native" paplay "$outfile" 2>/dev/null
-            rm -f "$outfile"
+            play_detached "$outfile"
             return 0
         }
     fi
@@ -174,13 +188,7 @@ try_espeak() {
     local speed="155"
     [ "$SPEED" = "slow" ] && speed="110"
     espeak-ng -v "$voice" -s "$speed" -p 35 -P 65 -w "$outfile" "$text" 2>/dev/null && [ -s "$outfile" ] && {
-        PULSE_SERVER="unix:/run/user/1000/pulse/native" aplay -q "$outfile" 2>/dev/null || \
-        PULSE_SERVER="unix:/run/user/1000/pulse/native" play -q "$outfile" 2>/dev/null || \
-        PULSE_SERVER="unix:/run/user/1000/pulse/native" paplay "$outfile" 2>/dev/null || {
-            # Fallback directo al altavoz si no hay reproductor
-            espeak-ng -v "$voice" -s "$speed" -p 35 -P 65 "$text" 2>/dev/null
-        }
-        rm -f "$outfile"
+        play_detached "$outfile"
         return 0
     }
     rm -f "$outfile"
