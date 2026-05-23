@@ -13,7 +13,8 @@ Uso: nexo-graph <comando> [args]
   init                  → Inicializar BD y ramas fijas
   add <rama> <nombre> <datos>  → Agregar nodo (rama: user|directives|world)
   get <id>              → Mostrar nodo
-  search <consulta>     → Buscar por palabra clave
+  search <consulta>     → Buscar por palabra clave (LIKE)
+  fts <consulta>        → Full-Text Search (FTS5, ranking BM25)
   recall <consulta>     → Recall Gate: buscar por Jaccard similarity
   semsearch <consulta>  → Búsqueda semántica por embeddings (Ollama)
   embed [id]            → Generar embedding (todos o uno específico)
@@ -77,6 +78,33 @@ EMBEDDING_COLUMN_SQL = """
 ALTER TABLE memory_nodes ADD COLUMN embedding TEXT DEFAULT '';
 """
 
+# FTS5 full-text search virtual table
+FTS5_SCHEMA_SQL = """
+CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+    name, description, data, content='memory_nodes', content_rowid='rowid'
+);
+"""
+
+# Triggers para mantener FTS sincronizado con memory_nodes
+FTS5_TRIGGERS_SQL = """
+CREATE TRIGGER IF NOT EXISTS memory_fts_insert AFTER INSERT ON memory_nodes BEGIN
+    INSERT INTO memory_fts(rowid, name, description, data)
+    VALUES (new.rowid, new.name, new.description, new.data);
+END;
+
+CREATE TRIGGER IF NOT EXISTS memory_fts_delete AFTER DELETE ON memory_nodes BEGIN
+    INSERT INTO memory_fts(memory_fts, rowid, name, description, data)
+    VALUES ('delete', old.rowid, old.name, old.description, old.data);
+END;
+
+CREATE TRIGGER IF NOT EXISTS memory_fts_update AFTER UPDATE ON memory_nodes BEGIN
+    INSERT INTO memory_fts(memory_fts, rowid, name, description, data)
+    VALUES ('delete', old.rowid, old.name, old.description, old.data);
+    INSERT INTO memory_fts(rowid, name, description, data)
+    VALUES (new.rowid, new.name, new.description, new.data);
+END;
+"""
+
 
 # ── Graph Memory Store ─────────────────────────────────────────────────────
 
@@ -90,6 +118,7 @@ class GraphStore:
         self._init_schema()
         self._migrate_schema()
         self._ensure_root()
+        self._ensure_fts()
 
     def _migrate_schema(self):
         """Agregar columnas nuevas si no existen (migración idempotente)."""
@@ -132,6 +161,20 @@ class GraphStore:
                     (bid, bname, bdesc, bid, now, now, now),
                 )
             self.conn.commit()
+
+    def _ensure_fts(self):
+        """Crear FTS5 + triggers y rebuild del índice."""
+        try:
+            with self._lock:
+                self.conn.executescript(FTS5_SCHEMA_SQL)
+                self.conn.executescript(FTS5_TRIGGERS_SQL)
+                # Rebuild index para sincronizar con datos existentes
+                self.conn.execute(
+                    "INSERT INTO memory_fts(memory_fts) VALUES('rebuild')"
+                )
+                self.conn.commit()
+        except Exception as e:
+            pass  # FTS5 no disponible — search() usará LIKE como fallback
 
     def _now(self):
         return datetime.now(timezone.utc).isoformat()
@@ -208,6 +251,35 @@ class GraphStore:
             for r in results:
                 self.touch_node(r["id"])
             return results
+
+    def fts_search(self, query, limit=10):
+        """Búsqueda Full-Text Search (FTS5) con ranking BM25."""
+        try:
+            # Sanitizar query para FTS5 (escapar caracteres especiales)
+            fts_query = " AND ".join(
+                f'"{w}"' for w in query.split() if w.strip()
+            )
+            if not fts_query:
+                return []
+
+            with self._lock:
+                rows = self.conn.execute(
+                    """SELECT mn.*, bm25(memory_fts, 0, 3.0, 3.0, 1.0) AS rank
+                       FROM memory_fts
+                       JOIN memory_nodes mn ON mn.rowid = memory_fts.rowid
+                       WHERE memory_fts MATCH ?
+                       AND mn.id NOT IN ('root', 'user', 'directives', 'world')
+                       ORDER BY rank
+                       LIMIT ?""",
+                    (fts_query, limit),
+                ).fetchall()
+                results = [dict(r) for r in rows]
+                for r in results:
+                    self.touch_node(r["id"])
+                return results
+        except Exception:
+            # FTS5 falló, hacer fallback a search() normal
+            return self.search(query, limit)
 
     def touch_node(self, node_id):
         now = self._now()
@@ -650,6 +722,27 @@ def cmd_recall(args):
     store.close()
 
 
+def cmd_fts(args):
+    """Búsqueda Full-Text Search (FTS5) con ranking BM25."""
+    if not args:
+        print("❌ Uso: nexo-graph fts <consulta>")
+        sys.exit(1)
+    query = " ".join(args)
+    store = GraphStore()
+    results = store.fts_search(query)
+    if not results:
+        print(f"🔍 FTS5: sin resultados para '{query}'")
+        print("  💡 Probá 'nexo-graph search' como alternativa")
+        store.close()
+        return
+    print(f"🔍 FTS5 — '{query}' ({len(results)} resultados):")
+    for r in results:
+        preview = r["data"][:80].replace("\n", " ") if r["data"] else "—"
+        rank = r.get("rank", 0)
+        print(f"  • [{r['branch']}] (r={rank:.2f}) {r['name']}: {preview}")
+    store.close()
+
+
 def cmd_embed(args):
     """Generar embedding para uno o todos los nodos."""
     store = GraphStore()
@@ -822,6 +915,7 @@ def main():
         "add": cmd_add,
         "get": cmd_get,
         "search": cmd_search,
+        "fts": cmd_fts,
         "recall": cmd_recall,
         "semsearch": cmd_semsearch,
         "embed": cmd_embed,
