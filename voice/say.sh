@@ -190,15 +190,9 @@ ensure_piper_voice() {
 
 # === EJECUCIÓN ===
 # Prioridad: velocidad ante todo.
-# 1. Piper TTS (local, instantáneo) — si está instalado
-# 2. espeak-ng (local, rápido, sin internet, ~0.5s)
-# 3. gTTS (cloud) solo si lo anterior falla — descarga en background
-try_piper "$SAY_TEXT" "$LANG" || {
-    # espeak directo (rápido, ~300ms)
-    try_espeak "$SAY_TEXT" "$LANG" || true
-    # En background: descargar voz Piper para próxima vez
-    ensure_piper_voice "$LANG" &
-}
+# ⚡ espeak-ng directo (local, rápido, ~100ms para empezar a hablar)
+# ❌ NO usamos Piper TTS ni gTTS — en PCs lentas tardan +15s en generar
+try_espeak "$SAY_TEXT" "$LANG" || true
 
 # Guardar texto hablado para echo detection (voice.sh lo usa)
 echo "$SAY_TEXT" > /tmp/nexo-last-tts.txt
