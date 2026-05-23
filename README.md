@@ -1,9 +1,15 @@
 # 🧠 Nexo Ecosystem
 
-> Asistente autónomo para el hogar, hecho para correr en una PC modesta con Linux.  
+> Asistente autónomo para el hogar con **memoria persistente** — se acuerda de todo lo que hacés.  
 > **Solo Linux** — requiere bash, systemd y PulseAudio.
 
 Nexo es un ecosistema de scripts y configuraciones que transforman una PC Linux en un asistente del hogar con **memoria persistente**, **reconocimiento facial**, **control por voz**, **monitoreo del sistema** y **auto-aprendizaje**.
+
+### 🧠 Memoria que no se pierde
+
+Todo lo que hablás con Nexo, lo que configurás, lo que aprende — **lo recuerda entre sesiones**. Usa un Knowledge Graph en SQLite con embeddings semánticos (Ollama + nomic-embed-text) que entiende el *significado* de las cosas, no solo palabras clave.
+
+Y si migrás de PC o formateás, el script `migrar-miku.sh` (incluido en el repo) respalda **toda la memoria** — conversaciones, preferencias, aprendizajes — para que Nexo no olvide nada. ➡️ [Ver backup](backup/migrar-miku.sh)
 
 Creado originalmente para un Intel Celeron 847 con 4 GB de RAM — está optimizado para **cualquier hardware**, desde una netbook vieja hasta un Ryzen 9.
 
