@@ -120,6 +120,39 @@ python3 -m pip install --quiet --user gtts edge-tts 2>/dev/null && \
     ok "Dependencias Python instaladas (gTTS, edge-tts)" || \
     warn "No se pudieron instalar gTTS/edge-tts — se usará espeak-ng local"
 
+# ── Piper TTS (local, rápido, sin depender de internet) ─────────────────
+info "Instalando Piper TTS..."
+if pip install --quiet --user --break-system-packages piper-tts 2>/dev/null; then
+    ok "Piper TTS instalado"
+    
+    # Descargar voces
+    PIPER_VOICES_DIR="$HOME/.local/share/piper-voices"
+    mkdir -p "$PIPER_VOICES_DIR"
+    
+    info "Descargando voces Piper (español + inglés)..."
+    
+    # Español
+    if [ ! -f "$PIPER_VOICES_DIR/es_ES-davefx-medium.onnx" ]; then
+        curl -sL "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx?download=true" \
+            -o "$PIPER_VOICES_DIR/es_ES-davefx-medium.onnx" &
+        curl -sL "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx.json?download=true" \
+            -o "$PIPER_VOICES_DIR/es_ES-davefx-medium.onnx.json" &
+    fi
+    
+    # Inglés
+    if [ ! -f "$PIPER_VOICES_DIR/en_US-lessac-medium.onnx" ]; then
+        curl -sL "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx?download=true" \
+            -o "$PIPER_VOICES_DIR/en_US-lessac-medium.onnx" &
+        curl -sL "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json?download=true" \
+            -o "$PIPER_VOICES_DIR/en_US-lessac-medium.onnx.json" &
+    fi
+    
+    wait
+    ok "Voces Piper descargadas (español + inglés)"
+else
+    warn "No se pudo instalar Piper TTS — se usará gTTS cloud + espeak como respaldo"
+fi
+
 # ── Copiar scripts ─────────────────────────────────────────────────────
 info "Copiando scripts..."
 
