@@ -1,16 +1,30 @@
-# Regla sudoers para Nexo Temperature Monitor
-# Permite apagado automático sin contraseña cuando la temperatura es crítica
+# Regla sudoers para Nexo Ecosystem
+# Permite comandos específicos SIN contraseña para el usuario de Nexo
 # Instalado por install.sh — reemplazar USERNAME por el usuario real
+# ⚠️ Seguridad: solo los comandos listados abajo pueden ejecutarse sin password
 
-# Permitir rtcwake (despertar programado)
+# ── Temperature Monitor ──────────────────────────────────────────────
+# Apagado programado / despertar
 USERNAME ALL=(ALL) NOPASSWD: /usr/sbin/rtcwake
 USERNAME ALL=(ALL) NOPASSWD: /sbin/rtcwake
 
-# Permitir apagado del sistema
+# Apagar el sistema
 USERNAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl poweroff
 USERNAME ALL=(ALL) NOPASSWD: /bin/systemctl poweroff
 
-# Permitir cancelación de apagado
+# Cancelar apagado
 USERNAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl cancel
 USERNAME ALL=(ALL) NOPASSWD: /bin/systemctl cancel
 USERNAME ALL=(ALL) NOPASSWD: /sbin/sh -c 'echo 0 > /sys/class/rtc/rtc0/wakealarm'
+
+# ── CPU Performance ──────────────────────────────────────────────────
+USERNAME ALL=(ALL) NOPASSWD: /usr/bin/cpupower
+USERNAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl start cpu-performance.service
+USERNAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop cpu-performance.service
+USERNAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart cpu-performance.service
+
+# ── Systemd Services ─────────────────────────────────────────────────
+USERNAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl start ollama.service
+USERNAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop ollama.service
+USERNAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart ollama.service
+USERNAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl status ollama.service

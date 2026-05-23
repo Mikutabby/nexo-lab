@@ -174,7 +174,7 @@ Tienes dos modos de ser, y debes cambiar entre ellos según el contexto:
 - Cancelar: el usuario escribe **"no"** en el chat y yo ejecuto `temp-cancel.sh`
 - Script de cancelación: `$HOME/.local/bin/temp-cancel.sh`
 - Sudoers: `/etc/sudoers.d/temp-monitor` (passwordless para rtcwake y systemctl poweroff)
-- Contraseña sudo: **TU_PASSWORD**
+- Sudo: sin contraseña para comandos aprobados via sudoers (ver config/sudoers.temp-monitor)
 
 ### Text-to-Speech (TTS)
 - Script: `~/.opencode/say.sh`
@@ -427,7 +427,7 @@ Resumidor diario de interacciones usando Ollama + knowledge graph.
 
 ## Datos del usuario
 - Nombre de usuario: **miku**
-- Password sudo: **TU_PASSWORD** (⚠️ solo usar cuando sea necesario y con permiso explícito)
+- Sudo: sin contraseña para comandos específicos via sudoers (no guardar contraseñas en texto plano)
 - Home: `$HOME`
 - PC: Linux con capacidad de reconocimiento facial, TTS, monitoreo de temperatura
 

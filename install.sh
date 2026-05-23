@@ -127,8 +127,9 @@ info "Copiando scripts..."
 cp "$SCRIPT_DIR/system/check-identity.sh" "$BIN_DIR/"
 cp "$SCRIPT_DIR/system/face-recognize.py" "$BIN_DIR/"
 cp "$SCRIPT_DIR/system/temp-monitor.sh" "$BIN_DIR/"
-# temp-cancel.sh: reemplazar placeholder de password
-sed "s/SUDO_PASS_PLACEHOLDER/$SUDO_PASS/g" "$SCRIPT_DIR/system/temp-cancel.sh" > "$BIN_DIR/temp-cancel.sh"
+# temp-cancel.sh: ya no necesita password (usa sudoers NOPASSWD)
+cp "$SCRIPT_DIR/system/temp-cancel.sh" "$BIN_DIR/"
+cp "$SCRIPT_DIR/system/nexo-harden" "$BIN_DIR/"
 cp "$SCRIPT_DIR/system/limpiar" "$BIN_DIR/"
 cp "$SCRIPT_DIR/system/falkon-rapido" "$BIN_DIR/"
 
@@ -147,9 +148,8 @@ sed "s|HOME_PLACEHOLDER|$HOME|g" "$SCRIPT_DIR/tools/nexo-wake" > "$BIN_DIR/nexo-
 cp "$SCRIPT_DIR/voice/say.sh" "$OPENCODE_DIR/"
 cp "$SCRIPT_DIR/voice/voice.sh" "$OPENCODE_DIR/"
 
-# agent/ — reemplazar password y home en asistente.md
-sed -e "s/SUDO_PASS_PLACEHOLDER/$SUDO_PASS/g" \
-    -e "s|HOME_PLACEHOLDER|$HOME|g" \
+# agent/ — reemplazar HOME en asistente.md (ya no necesita password — usa sudoers NOPASSWD)
+sed -e "s|HOME_PLACEHOLDER|$HOME|g" \
     "$SCRIPT_DIR/agent/asistente.md" > "$AGENT_DIR/asistente.md"
 
 # backup
@@ -176,7 +176,8 @@ echo "$SUDO_PASS" | sudo -S systemctl start cpu-performance.service 2>/dev/null 
     ok "Servicio CPU Performance configurado" || \
     warn "No se pudo configurar CPU Performance (posiblemente no soportado)"
 
-# Sudoers para temp-monitor (reemplazar USERNAME por el usuario real)
+# Sudoers para Nexo (reemplazar USERNAME por el usuario real)
+# Permite comandos sudo sin contraseña: rtcwake, poweroff, cpupower, services
 sed "s/USERNAME/$USER/g" "$SCRIPT_DIR/config/sudoers.temp-monitor" | \
     echo "$SUDO_PASS" | sudo -S tee /etc/sudoers.d/temp-monitor >/dev/null 2>&1
 echo "$SUDO_PASS" | sudo -S chmod 440 /etc/sudoers.d/temp-monitor 2>/dev/null && \
@@ -225,6 +226,17 @@ else
     fi
 fi
 
+# ── Ofrecer Security Hardening ──────────────────────────────────────────
+echo ""
+echo -n "🛡️  ¿Querés aplicar hardening de seguridad? (firewall, kernel, SSH) (s/N): "
+read -r RUN_HARDEN
+if [[ "$RUN_HARDEN" =~ ^[sS]$ ]]; then
+    info "Aplicando security hardening..."
+    echo "$SUDO_PASS" | sudo -S "$BIN_DIR/nexo-harden" --apply 2>/dev/null && \
+        ok "Security hardening aplicado" || \
+        warn "No se pudo aplicar hardening (ejecutá manual: sudo nexo-harden --apply)"
+fi
+
 # ── Verificar TTS ────────────────────────────────────────────────────────
 info "Probando TTS..."
 if timeout 5 espeak-ng "Hola" 2>/dev/null; then
@@ -253,6 +265,7 @@ echo "     nexo-wake       — Wake Word Detection"
 echo "     limpiar         — Limpiador del sistema"
 echo "     face-recognize  — Reconocimiento facial"
 echo "     temp-monitor    — Monitor de temperatura"
+echo "     nexo-harden     — 🛡️ Security Hardening"
 echo ""
 echo "   📖 README: $SCRIPT_DIR/README.md"
 echo "   🌐 GitHub: https://github.com/Mikutabby/nexo-lab"
