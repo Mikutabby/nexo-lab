@@ -1,0 +1,22 @@
+#!/bin/bash
+# Nexo pre-commit hook — Evita commits con datos sensibles
+set -e
+
+REPO_DIR="$(git rev-parse --show-toplevel)"
+echo "🧼 Nexo Sanitize: revisando datos sensibles antes del commit..."
+
+# Ejecutar sanitize en modo check
+"$REPO_DIR/sanitize.sh" check
+RESULT=$?
+
+if [ "$RESULT" -ne 0 ]; then
+    echo ""
+    echo "❌ COMMIT RECHAZADO: se encontraron datos sensibles."
+    echo "   Ejecutá './sanitize.sh clean' para limpiarlos,"
+    echo "   o './sanitize.sh scan' para ver exactamente qué hay."
+    echo ""
+    echo "   Si es un falso positivo, usá 'git commit --no-verify' para saltar."
+    exit 1
+fi
+
+echo "✅ Check sanitize pasado — todo limpio"

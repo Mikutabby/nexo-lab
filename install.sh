@@ -278,6 +278,13 @@ else
     warn "TTS no funciona — revisá espeak-ng o PulseAudio"
 fi
 
+# ── Instalar pre-commit hook ──────────────────────────────────────────────
+if [ -d "$SCRIPT_DIR/.git/hooks" ] && [ -f "$SCRIPT_DIR/sanitize.sh" ]; then
+    bash "$SCRIPT_DIR/sanitize.sh" install 2>/dev/null && \
+        ok "Pre-commit hook instalado (sanitize)" || \
+        warn "No se pudo instalar pre-commit hook (ejecutá: bash sanitize.sh install)"
+fi
+
 echo ""
 echo "========================================"
 echo "  ✅ Nexo Lab instalado"
@@ -299,6 +306,7 @@ echo "     limpiar         — Limpiador del sistema"
 echo "     face-recognize  — Reconocimiento facial"
 echo "     temp-monitor    — Monitor de temperatura"
 echo "     nexo-harden     — 🛡️ Security Hardening"
+echo "     sanitize.sh     — 🧼 Escaneo de datos sensibles en el repo"
 echo ""
 echo "   📖 README: $SCRIPT_DIR/README.md"
 echo "   🌐 GitHub: https://github.com/Mikutabby/nexo-lab"

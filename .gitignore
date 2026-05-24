@@ -10,3 +10,6 @@ log/
 .DS_Store
 *.swp
 *.swo
+
+# Archivos de configuración local (contienen datos personales)
+agent/style-local.md
