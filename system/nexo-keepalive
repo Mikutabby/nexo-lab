@@ -1,0 +1,70 @@
+#!/bin/bash
+# 🧠 Nexo Keepalive — mantiene el modelo de IA en RAM
+# Se ejecuta cada 30s para evitar que Ollama descargue el modelo
+
+OLLAMA_URL="http://localhost:11434"
+DEFAULT_MODEL="smollm2:135m"
+MODEL="$DEFAULT_MODEL"
+PIDFILE="/tmp/nexo-keepalive.pid"
+LOGFILE="/tmp/nexo-keepalive.log"
+
+keepalive_ping() {
+    curl -sf "$OLLAMA_URL/api/generate" \
+        -d "{\"model\": \"$MODEL\", \"prompt\": \"keepalive\", \"stream\": false, \"keep_alive\": \"30m\", \"options\": {\"num_predict\": 1}}" \
+        -o /dev/null 2>&1
+    return $?
+}
+
+case "${1:-}" in
+    start)
+        MODEL="${2:-$DEFAULT_MODEL}"
+        echo "$$" > "$PIDFILE"
+        exec > "$LOGFILE" 2>&1
+        echo "🧠 Nexo Keepalive iniciado (PID $$)"
+        echo "   Modelo: $MODEL"
+        echo "   Ping cada 30s"
+        echo "---"
+        
+        # Primer ping (carga el modelo)
+        echo "[$(date +%H:%M:%S)] Cargando modelo $MODEL..."
+        keepalive_ping
+        echo "[$(date +%H:%M:%S)] ✅ Modelo cargado"
+        
+        # Loop de keepalive
+        while true; do
+            sleep 30
+            if keepalive_ping; then
+                echo "[$(date +%H:%M:%S)] ✅ keepalive OK" 
+            else
+                echo "[$(date +%H:%M:%S)] ❌ keepalive FAIL (Ollama caído?)"
+            fi
+        done
+        ;;
+    stop)
+        if [ -f "$PIDFILE" ]; then
+            kill "$(cat "$PIDFILE")" 2>/dev/null
+            rm -f "$PIDFILE"
+            echo "🧠 Nexo Keepalive detenido"
+        else
+            echo "❌ Nexo Keepalive no está corriendo"
+        fi
+        ;;
+    status)
+        if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+            echo "✅ Nexo Keepalive activo (PID $(cat "$PIDFILE"))"
+            echo "   Modelo: $MODEL"
+            tail -3 "$LOGFILE" 2>/dev/null
+        else
+            echo "❌ Nexo Keepalive inactivo"
+        fi
+        ;;
+    *)
+        echo "Uso: nexo-keepalive {start|stop|status} [modelo]"
+        echo ""
+        echo "Ejemplo:"
+        echo "  nexo-keepalive start              # Modelo por defecto (smollm2:135m)"
+        echo "  nexo-keepalive start qwen2:0.5b   # Modelo específico"
+        echo "  nexo-keepalive stop"
+        echo "  nexo-keepalive status"
+        ;;
+esac

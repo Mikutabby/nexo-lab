@@ -1,0 +1,29 @@
+#!/bin/bash
+# Restaura internet al dispositivo suspendido
+# Uso: dar_internet
+
+TARGET_IP="192.168.1.9"
+TARGET_MAC="2a:c6:3d:f3:2a:b3"
+GATEWAY_IP="192.168.1.254"
+GATEWAY_MAC="60:d2:48:99:fd:0f"
+IFACE="eth0"
+
+echo "🔄 Restaurando internet para $TARGET_IP..."
+
+# Matar procesos de arpspoof
+sudo pkill -f "arpspoof.*$TARGET_IP" 2>/dev/null
+echo "   ✅ ARP spoofing detenido"
+
+# Eliminar cron de monitoreo
+(crontab -l 2>/dev/null | grep -v "arpspoof.*$TARGET_IP") | crontab - 2>/dev/null
+echo "   ✅ Cron de bloqueo eliminado"
+
+# Restaurar ARP - enviar ping para refrescar cache
+ping -c 1 -W 1 $TARGET_IP >/dev/null 2>&1
+sudo arp -d $TARGET_IP 2>/dev/null
+sudo nmap -sn ${GATEWAY_IP%.*}.0/24 >/dev/null 2>&1 &
+echo "   ✅ ARP cache refrescada (el dispositivo recuperará el gateway en segundos)"
+
+echo ""
+echo "✅ Internet restaurado para $TARGET_IP"
+echo "   Ahora puede navegar normalmente"

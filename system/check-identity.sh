@@ -4,7 +4,7 @@
 # Uso: check-identity.sh  -> imprime "miku", "unknown" o "nobody"
 
 IDENTITY_FILE="/tmp/opencode-identity.json"
-SCRIPT_DIR="$HOME/.local/bin"
+SCRIPT_DIR="/home/miku/.local/bin"
 
 # Ejecutar reconocimiento facial
 RESULT=$(python3 "$SCRIPT_DIR/face-recognize.py" whoami 2>&1)

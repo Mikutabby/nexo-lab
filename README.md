@@ -1,163 +1,375 @@
-# 🧠 Nexo Ecosystem
+# 🧠 Nexo Ecosystem — Asistente del Hogar
 
-> Asistente autónomo para el hogar con **memoria persistente** — se acuerda de todo lo que hacés.  
-> **Solo Linux** — requiere bash, systemd y PulseAudio.
+## 📋 Índice
 
-Nexo es un ecosistema de scripts y configuraciones que transforman una PC Linux en un asistente del hogar con **memoria persistente**, **reconocimiento facial**, **control por voz**, **monitoreo del sistema** y **auto-aprendizaje**.
-
-### 🧠 Memoria que no se pierde
-
-Todo lo que hablás con Nexo, lo que configurás, lo que aprende — **lo recuerda entre sesiones**. Usa un Knowledge Graph en SQLite con embeddings semánticos (Ollama + nomic-embed-text) que entiende el *significado* de las cosas, no solo palabras clave.
-
-Y si migrás de PC o formateás, el script `migrar-miku.sh` (incluido en el repo) respalda **toda la memoria** — conversaciones, preferencias, aprendizajes — para que Nexo no olvide nada. ➡️ [Ver backup](backup/migrar-miku.sh)
-
-Creado originalmente para un Intel Celeron 847 con 4 GB de RAM — está optimizado para **cualquier hardware**, desde una netbook vieja hasta un Ryzen 9.
-
-### 📋 Distribuciones soportadas
-| Compatible | No compatible |
-|:---|---:|
-| Debian / Ubuntu / MX Linux | ❌ Windows |
-| Fedora / RHEL / CentOS | ❌ macOS |
-| Arch / Manjaro / EndeavourOS | ❌ BSD |
-| Linux Mint / Pop!_OS / Zorin | ❌ ChromeOS |
-| Cualquier distro con systemd + bash | Cualquier sistema sin systemd |
+1. [Arquitectura](#arquitectura)
+2. [Estructura de directorios](#estructura-de-directorios)
+3. [Proyectos](#proyectos)
+4. [Scripts del sistema](#scripts-del-sistema)
+5. [Servicios](#servicios)
+6. [Flujo de datos](#flujo-de-datos)
+7. [Para desarrolladores](#para-desarrolladores)
 
 ---
 
-## 📦 Componentes
+## Arquitectura
 
-### 🤖 Agente (`agent/`)
-- **asistente.md** — Personalidad y reglas de Nexo. Archivo de agente para OpenCode que define cómo piensa, habla y actúa.
-
-### 🎤 Voz (`voice/`)
-- **say.sh** — Text-to-Speech multi-motor: gTTS (Google), edge-tts (Microsoft), MBROLA, espeak-ng. Fallback automático.
-- **voice.sh** — Speech-to-Text con VAD (Voice Activity Detection) + echo detection. Usa Google Web Speech API.
-
-### 🧠 Memoria (`graph/`)
-- **nexo-graph** — Knowledge Graph en SQLite con 3 ramas (user, directives, world). Búsqueda por keywords + Jaccard similarity + embeddings semánticos (Ollama + nomic-embed-text).
-- **nexo-memory** — Sistema de auto-aprendizaje y memoria persistente. Guarda facts, hábitos, errores y mejoras automáticamente.
-
-### 🔧 Herramientas (`tools/`)
-- **nexo-tools** — Tool Registry. Registra, busca y ejecuta herramientas personalizadas desde el knowledge graph.
-- **nexo-diary** — Diary Summariser. Resume las interacciones del día usando Ollama y guarda en el grafo.
-- **nexo-evaluate** — Evaluator. Verifica completitud de tareas usando IA local.
-- **nexo-wake** — Wake Word Detection. Escucha la palabra "Nexo" y activa comandos por voz. Soporta fuzzy match con difflib.
-
-### ⚙️ Sistema (`system/`)
-- **check-identity.sh** / **face-recognize.py** — Reconocimiento facial para verificar quién está usando la PC.
-- **temp-monitor.sh** / **temp-cancel.sh** — Monitoreo de temperatura con apagado automático si supera 80°C.
-- **limpiar** — Limpiador del sistema (cache APT, thumbnails, logs, papelera, RAM).
-- **falkon-rapido** — Navegador web ultra-ligero basado en Falkon (~44 MB RAM reales).
-
-### 🗂️ Config (`config/`)
-- **cpu-performance.service** — Servicio systemd que fija el governor de CPU en `performance`.
-- **sudoers.temp-monitor** — Regla sudoers para apagado automático sin contraseña.
-- **miku-crontab.txt** — Crontab del sistema.
-
-### 💿 Backup (`backup/`)
-- **migrar-miku.sh** — Script de backup y restore completo del ecosistema.
-
----
-
-## 🖥️ Funciona en cualquier PC
-
-Nexo está creado para **cualquier PC con Linux** — desde una netbook vieja (Celeron, Atom) hasta un ultrabook moderno (Core i7, Ryzen 7).  
-No necesitas una GPU cara ni 16 GB de RAM. Mientras corra Linux con systemd, Nexo funciona.
-
-| Componente | Mínimo | Recomendado |
-|------------|--------|-------------|
-| CPU | Cualquier x86_64 de 2+ cores | Intel Core / AMD Ryzen (cualquier generación) |
-| RAM | 2 GB | 4 GB o más |
-| Disco | 5 GB libres | 20 GB libres o más |
-| GPU | Cualquier integrada o dedicada | La que tengas — Nexo apenas usa GPU |
-| SO | Linux con systemd + bash | MX Linux, Ubuntu, Debian, Fedora, Arch… |
-
-### Optimizaciones incluidas
-- **CPU**: governor `performance` + servicio systemd persistente
-- **RAM**: zram con zstd, swappiness 10, vfs_cache_pressure 200
-- **Disco**: noatime, scheduler BFQ, read-ahead 8 MB
-- **DNS**: Cloudflare 1.1.1.1 (~133 ms resolución)
-- **Background**: sin animaciones, wallpaper estático
-- **Inicio**: servicios innecesarios deshabilitados (~15s ahorrados)
-
----
-
-## 🚀 Instalación rápida
-
-### Opción 1: Clonar con Git (recomendado)
-
-```bash
-git clone https://github.com/Mikutabby/nexo-lab.git
-cd nexo-lab
-chmod +x install.sh
-./install.sh
 ```
-
-> **Nota:** El repo es **público** — `git clone` no pide usuario ni contraseña.  
-> Si GitHub te pide credenciales, es porque estás intentando hacer `git push` (escribir cambios).  
-> Para solo instalar, clonar es anónimo y automático. ✅
-
-### Opción 2: Descargar ZIP (sin Git)
-
-Si no tenés Git o preferís bajarlo manual:
-
-```bash
-wget https://github.com/Mikutabby/nexo-lab/archive/refs/heads/main.zip
-unzip main.zip
-cd nexo-lab-main
-chmod +x install.sh
-./install.sh
-```
-
-### Opción 3: Desde tu PC
-
-Si ya lo tenés clonado o descargado, directamente:
-
-```bash
-cd nexo-lab
-chmod +x install.sh
-./install.sh
+Usuario
+   │
+   ├─► OpenCode (CLI/chat) ──► asistente.md (Nexo AI) ──► bash/python tools
+   │
+   ├─► nexo2 (CLI/GUI/Server) ──► nexo_engine.py ──► 15+ acciones
+   │                                                   │
+   │                                                   ├─► browser_control.py
+   │                                                   ├─► file_controller.py
+   │                                                   ├─► spotify_control.py
+   │                                                   ├─► weather_report.py
+   │                                                   ├─► web_search.py
+   │                                                   ├─► youtube_video.py
+   │                                                   ├─► scheduler.py
+   │                                                   ├─► reminder.py
+   │                                                   ├─► smart_home.py
+   │                                                   ├─► system_monitor.py
+   │                                                   ├─► knowledge_base.py
+   │                                                   ├─► goals.py
+   │                                                   ├─► user_profile.py
+   │                                                   ├─► morning_brief.py
+   │                                                   └─► ollama_provider.py
+   │
+   ├─► nexo-app (server HTTP, puerto 7072) ──► engine.py (versión anterior)
+   │
+   ├─► TTS (say.sh) ──► gTTS (Google) ──► espeak-ng (fallback)
+   │
+   ├─► STT (voice.sh) ──► graba micrófono ──► Google Speech API
+   │
+   ├─► Reconocimiento facial (face-recognize.py) ──► check-identity.sh
+   │
+   ├─► Monitor temperatura (temp-monitor.sh) ──► cron cada 2min
+   │
+   ├─► Memoria persistente (nexo-memory / nexo-graph) ──► SQLite
+   │
+   └─► Wake word (nexo-wake) ──► escucha "Nexo"
 ```
 
 ---
 
-### ¿Qué hace el instalador?
+## Estructura de directorios
 
-1. Pide tu contraseña **sudo** (para instalar dependencias y configurar servicios)
-2. Detecta tu gestor de paquetes (apt, dnf, pacman, zypper)
-3. Instala dependencias del sistema (espeak-ng, python3, sqlite3, jq, curl)
-4. Instala dependencias Python (gTTS, edge-tts para TTS por cloud)
-5. Copia todos los scripts a `~/.local/bin/`
-6. Configura el Knowledge Graph (memoria persistente)
-7. Activa el servicio de rendimiento CPU (governor `performance`)
-8. Configura sudoers para el monitor de temperatura
-9. Instala el crontab del sistema
-10. Te ofrece instalar **Ollama** para funciones avanzadas (embeddings, diary, evaluator)
-
-### 📦 Dependencias opcionales
-
-| Dependencia | Para qué sirve | Cómo instalarla |
-|-------------|---------------|-----------------|
-| **Ollama** | Embeddings semánticos, diary, evaluator | El instalador te lo ofrece automáticamente |
-| **OpenCV + face_recognition** | Reconocimiento facial | `pip install --user opencv-python face_recognition` |
-| **gTTS / edge-tts** | TTS por cloud (voz más natural) | El instalador las instala automáticamente |
-
-### ⚠️ Solución de problemas comunes
-
-| Problema | Causa | Solución |
-|----------|-------|----------|
-| `git clone` pide usuario/contraseña | Querés pushear o tenés un credential helper configurado | Usá la Opción 2 (ZIP) o configurá SSH |
-| `sudo: contraseña incorrecta` | Escribiste mal la contraseña | Ejecutá de nuevo el instalador con cuidado |
-| Ollama no se instala | No tenés curl o el script falló | Instalalo manual: `curl -fsSL https://ollama.com/install.sh \| sh` |
-| El TTS no suena | PulseAudio no está corriendo | Revisá `pulseaudio --start` o tu configuración de audio |
-| `face-recognize.py` no funciona | Falta OpenCV | `pip install --user opencv-python face_recognition` |
+```
+~/
+├── nexo2/                          ★ PROYECTO PRINCIPAL (git)
+│   ├── README.md                   Esta documentación
+│   ├── VERSION                     v2.0.0
+│   ├── LICENSE                     MIT
+│   ├── main.py                     Entry point
+│   ├── server.py                   HTTP server (puerto 7072)
+│   ├── install.sh                  Instalador completo
+│   │
+│   ├── agent/                      Personalidad del asistente
+│   │   ├── asistente.md            Prompt del agente (copia)
+│   │   └── style-local.md          Instrucciones de estilo
+│   │
+│   ├── core/                       ★ MOTOR PRINCIPAL
+│   │   ├── nexo_engine.py          Orquestador (keywords + Ollama)
+│   │   ├── model_router.py         Ruteo a modelos Ollama
+│   │   ├── prompt.txt              System prompt JARVIS v2.1
+│   │   └── version.py              Versión
+│   │
+│   ├── actions/                    ★ 15 ACCIONES
+│   │   ├── browser_control.py      Control de navegador (Playwright)
+│   │   ├── file_controller.py      Operaciones con archivos
+│   │   ├── smart_home.py           Hogar inteligente (MQTT)
+│   │   ├── spotify_control.py      Control de Spotify
+│   │   ├── system_monitor.py       Monitor del sistema
+│   │   ├── scheduler.py            Planificador de tareas
+│   │   ├── knowledge_base.py       Base de conocimiento
+│   │   ├── goals.py                Seguimiento de objetivos
+│   │   ├── morning_brief.py        Resumen matutino
+│   │   ├── user_profile.py         Perfil de usuario
+│   │   ├── weather_report.py       Clima (Open-Meteo)
+│   │   ├── youtube_video.py        YouTube search/play
+│   │   ├── reminder.py             Recordatorios
+│   │   ├── web_search.py           Búsqueda web (DDGS)
+│   │   └── ollama_provider.py      Cliente Ollama
+│   │
+│   ├── memory/                     Memoria
+│   │   └── memory_manager.py       Gestor de memoria
+│   │
+│   ├── graph/                      ★ SISTEMA DE MEMORIA
+│   │   ├── nexo-graph              Knowledge Graph (SQLite + embeddings)
+│   │   └── nexo-memory             Memoria persistente (bash)
+│   │
+│   ├── tools/                      Utilidades
+│   │   ├── nexo-diary              Resumidor diario (Ollama)
+│   │   ├── nexo-evaluate           Evaluador de tareas
+│   │   ├── nexo-tools              Registro de herramientas
+│   │   └── nexo-wake               Detección de wake word
+│   │
+│   ├── voice/                      Voz
+│   │   ├── say.sh                  TTS → gTTS → espeak-ng
+│   │   └── voice.sh                STT → Google Speech API
+│   │
+│   ├── ui/                         Interfaz gráfica
+│   │   ├── nexo_ui.py              PyQt6 (ParticleOrb + widgets)
+│   │   └── theme.py                Temas de color
+│   │
+│   ├── system/                     Scripts del sistema (copias)
+│   │   ├── check-identity.sh       Reconocimiento facial
+│   │   ├── face-recognize.py       Entrenamiento/detección facial
+│   │   ├── temp-monitor.sh         Monitor temperatura
+│   │   ├── temp-cancel.sh          Cancelar apagado
+│   │   ├── limpiar                 Limpieza del sistema
+│   │   ├── falkon-rapido           Lanzador rápido Falkon
+│   │   ├── suspender               Suspender PC
+│   │   ├── desbloquear             Desbloquear pantalla
+│   │   ├── dar_internet            Compartir internet
+│   │   ├── nexo-keepalive          Mantener modelo en RAM
+│   │   ├── wallpaper-animado.sh    Fondo de pantalla animado
+│   │   └── jp.py                   Procesador JSON
+│   │
+│   ├── backup/
+│   │   └── migrar-miku.sh          Backup/restore del ecosistema
+│   │
+│   ├── config/                     Configuración
+│   │   ├── config.json             Config principal
+│   │   ├── api_keys.json           API keys
+│   │   ├── knowledge_base.json     Base de conocimiento
+│   │   ├── miku-crontab.txt        Cron para temp-monitor
+│   │   └── ...                     Servicios systemd, sudoers, etc.
+│   │
+│   ├── assets/                     (vacío - para assets futuros)
+│   └── .git/                       Repositorio GitHub
+│
+├── .opencode/                      ★ CONFIGURACIÓN DE OPENCODE
+│   ├── bin/opencode                Binario de OpenCode
+│   ├── agents/asistente.md         ★ Personalidad activa de Nexo
+│   ├── say.sh                      TTS (copia vivida)
+│   ├── voice.sh                    STT (copia vivida)
+│   └── node_modules/               Dependencias npm
+│
+├── .config/opencode/               Config de OpenCode
+│   ├── opencode.jsonc              Config principal
+│   ├── style.md                    Estilo base
+│   ├── style-local.md              Estilo local
+│   └── node_modules/               Dependencias npm
+│
+├── .local/bin/                     ★ SCRIPTS EJECUTABLES (en PATH)
+│   ├── nexo2                       Lanzador Nexo 2.0
+│   ├── nexo-graph                  Knowledge Graph
+│   ├── nexo-memory                 Memoria persistente
+│   ├── nexo-diary                  Resumidor diario
+│   ├── nexo-evaluate               Evaluador
+│   ├── nexo-tools                  Lanzador de herramientas
+│   ├── nexo-wake                   Wake word
+│   ├── nexo-keepalive              Keepalive Ollama
+│   ├── nexo-ui*                    UI wrappers
+│   ├── check-identity.sh           Reconocimiento facial
+│   ├── face-recognize.py           Face train/identify
+│   ├── temp-monitor.sh             Temperatura
+│   ├── temp-cancel.sh              Cancelar apagado
+│   ├── limpiar                     Limpieza sistema
+│   ├── falkon-rapido               Falkon rápido
+│   ├── suspender / desbloquear     Utilidades
+│   ├── dar_internet                Compartir red
+│   ├── wallpaper-animado.sh        Wallpaper
+│   └── jp.py                       JSON processor
+│
+├── nexo-app/                       ★ PROYECTO ANTERIOR (aún activo)
+│   ├── server.py                   HTTP server corriendo en :7072
+│   ├── main.py                     Entry point CLI
+│   ├── nexo-app.sh                 Lanzador
+│   ├── core/                       Motor (engine.py, brain.py, etc.)
+│   ├── memory/                     Memoria (bridge)
+│   ├── tools/                      Herramientas (registry, system, etc.)
+│   └── voice/                      TTS/STT
+│
+├── .nexo-memory/                   ★ DATOS DE MEMORIA
+│   ├── memory.json                 Memoria en JSON
+│   ├── graph.db                    Knowledge Graph (SQLite)
+│   ├── interactions.json           Interacciones recientes
+│   ├── log/*.log                   Logs diarios
+│   └── learned/                    Datos de aprendizaje
+│
+├── .nexo-voice/                    Datos de entrenamiento de voz
+│   └── recordings/*.wav            12 muestras de voz
+│
+├── miku-eco/                       ★ PROYECTO ANTERIOR (hogar)
+│   └── .local/bin/miku-eco/        Automatización del hogar
+│
+├── respaldo-nexo-20260522/         Backup completo (260 MB)
+│
+└── miku-backup.tar.gz              Backup comprimido (53 MB)
+```
 
 ---
 
-## 📜 Licencia
+## Proyectos
 
-MIT — hacé lo que quieras, pero si mejorás algo, mandá un PR ✨
+### 🏆 nexo2 (PRINCIPAL — activo)
+| Aspecto | Detalle |
+|---------|---------|
+| **Directorio** | `~/nexo2/` |
+| **Git** | `github.com/Mikutabby/nexo-lab` (rama `main`) |
+| **Estado** | En desarrollo activo |
+| **Motor** | `core/nexo_engine.py` — keywords + Ollama fallback |
+| **UI** | PyQt6 (`ui/nexo_ui.py`) + HTTP server (`server.py`) |
+| **Acciones** | 15 módulos en `actions/` |
+| **Instalación** | `bash install.sh` |
+
+### 🔶 nexo-app (ANTERIOR — aún corriendo)
+| Aspecto | Detalle |
+|---------|---------|
+| **Directorio** | `~/nexo-app/` |
+| **Git** | No trackeado |
+| **Estado** | Servidor HTTP activo en puerto 7072 (PID 133986) |
+| **Motor** | `core/engine.py` + `core/brain.py` |
+| **Nota** | Versión previa a nexo2. Mantenida por compatibilidad. El servidor HTTP seguirá funcionando hasta que nexo2 lo reemplace. |
+
+### 🏠 miku-eco (ANTERIOR — inactivo)
+| Aspecto | Detalle |
+|---------|---------|
+| **Directorio** | `~/.local/bin/miku-eco/` |
+| **Servicio** | `miku-eco.service` (systemd, desactivado) |
+| **Estado** | Inactivo. Código mantenido como referencia. |
+| **Función** | Automatización del hogar (TV LG, presencia, voz) |
 
 ---
 
-*Creado por [mikuyasha](https://github.com/mikuyasha) con ❤️ y una Celeron.*
+## Scripts del sistema
+
+| Script | Ruta viva | Función |
+|--------|-----------|---------|
+| `say.sh` | `~/.opencode/` y `~/nexo2/voice/` | Text-to-Speech (gTTS → espeak-ng) |
+| `voice.sh` | `~/.opencode/` y `~/nexo2/voice/` | Speech-to-Text (Google Speech API) |
+| `check-identity.sh` | `~/.local/bin/` | Reconoce quién está frente a la PC |
+| `face-recognize.py` | `~/.local/bin/` | Entrena/identifica rostros |
+| `temp-monitor.sh` | `~/.local/bin/` | Monitorea temperatura (cron cada 2min) |
+| `temp-cancel.sh` | `~/.local/bin/` | Cancela apagado por temperatura |
+| `limpiar` | `~/.local/bin/` | Limpieza del sistema |
+| `nexo-graph` | `~/.local/bin/` | Knowledge Graph (SQLite + embeddings) |
+| `nexo-memory` | `~/.local/bin/` | Memoria persistente |
+| `nexo-diary` | `~/.local/bin/` | Resumen diario |
+| `nexo-evaluate` | `~/.local/bin/` | Evaluador de tareas |
+| `nexo-tools` | `~/.local/bin/` | Registro de herramientas |
+| `nexo-wake` | `~/.local/bin/` | Wake word detection |
+| `nexo-keepalive` | `~/.local/bin/` | Mantiene modelo Ollama en RAM |
+| `nexo2` | `~/.local/bin/` | Lanzador de Nexo 2.0 |
+
+> **Nota:** `~/.local/bin/` es la fuente de verdad para scripts ejecutables. `~/nexo2/system/`, `~/nexo2/graph/`, `~/nexo2/tools/` y `~/nexo2/voice/` son **copias sincronizadas** para el repositorio git.
+
+---
+
+## Servicios
+
+| Servicio | Tipo | Estado | Función |
+|----------|------|--------|---------|
+| `nexo-keepalive.service` | user | ✅ Activo | Mantiene smollm2:135m en RAM |
+| `nexo-wakeword.service` | user | ❌ Inactivo | Escucha "Nexo" (deshabilitado) |
+| `miku-eco.service` | system | ❌ Inactivo | Hogar inteligente (anterior) |
+| `nexo-app/server.py` | user (PID 133986) | ✅ Activo | Servidor HTTP puerto 7072 |
+
+### Crontab
+```
+0 * * * *  nexo-memory learn             → Aprendizaje automático cada hora
+*/2 * * * * temp-monitor.sh              → Monitor temperatura cada 2 minutos
+```
+
+---
+
+## Flujo de datos
+
+```
+                    ┌──────────────┐
+                    │   Usuario    │
+                    └──────┬───────┘
+                           │
+              ┌────────────┼────────────┐
+              ▼            ▼            ▼
+        OpenCode       nexo2 CLI    nexo2 GUI
+        (chat)        (terminal)   (PyQt6)
+              │            │            │
+              └─────┬──────┘────────────┘
+                    ▼
+           nexo_engine.py
+                    │
+          ┌─────────┼─────────┐
+          ▼         ▼         ▼
+    keywords    acciones   Ollama
+    (instant)   (15 mod.)  (fallback)
+          │         │         │
+          └─────────┼─────────┘
+                    ▼
+              Respuesta
+                    │
+          ┌─────────┼─────────┐
+          ▼         ▼         ▼
+       say.sh    voice.sh   face-recog
+       (TTS)     (STT)      (identidad)
+          │         │         │
+          ▼         ▼         ▼
+       parlante  micrófono  cámara
+```
+
+---
+
+## Para desarrolladores
+
+### ¿Por qué hay 3 proyectos?
+
+1. **nexo2** — Reescritura moderna. 15 acciones modulares, PyQt6 UI, keywords + Ollama. Es el futuro.
+2. **nexo-app** — Versión anterior con engine.py/brain.py. El server HTTP sigue activo en :7072.
+3. **miku-eco** — Proyecto de hogar inteligente separado, inactivo.
+
+### Live code vs git code
+
+- **`~/.local/bin/`** contiene los scripts **reales** que ejecuta cron, systemd y el PATH.
+- **`~/nexo2/`** es el proyecto git. Las subcarpetas `system/`, `graph/`, `tools/`, `voice/` contienen **copias** sincronizadas de los scripts de `~/.local/bin/`.
+- **Regla:** si modificás un script en `~/.local/bin/`, copialo a `~/nexo2/` para mantener el git actualizado.
+
+### Cómo empezar a desarrollar
+
+```bash
+# 1. Clonar
+git clone https://github.com/Mikutabby/nexo-lab ~/nexo2
+
+# 2. Probar motor
+nexo2 -c "ayuda"                    # CLI modo comando
+nexo2                                # CLI interactivo
+nexo2 gui                            # Interfaz gráfica
+
+# 3. Probar acciones individuales
+cd ~/nexo2 && python3 -c "
+from actions.weather_report import get_weather
+print(get_weather('Buenos Aires'))
+"
+
+# 4. Servidor HTTP
+nexo2 server                         # Puerto 7072
+curl http://127.0.0.1:7072/status    # Ver estado
+
+# 5. Instalación completa
+bash ~/nexo2/install.sh
+```
+
+### Dependencias clave
+
+| Dependencia | Para qué |
+|-------------|----------|
+| Python 3.12+ | Todo el ecosistema |
+| PyQt6 6.9+ | UI gráfica (ParticleOrb) |
+| Ollama | LLM local (smollm2:135m) |
+| espeak-ng / mbrola | TTS fallback |
+| gTTS | TTS Google WaveNet |
+| google-speech | STT |
+| Playwright | Browser control |
+| opencv-python | Face recognition |
+| SQLite3 | Knowledge Graph |
+
+### Notas importantes
+
+- **Smollm2:135m** genera a ~0.1 tok/s en este hardware (Celeron 847). Por eso se priorizan keywords.
+- **Ollama timeout:** 8s, context: 256 tokens.
+- **TTS:** gTTS (~1.5s) con fallback a espeak-ng (~0.03s).
+- **El motor usa keywords primero** — si el comando coincide con una keyword, se ejecuta al instante sin LLM.
+- **Para probar cambios:** editá el archivo y ejecutalo directamente. No necesitás reiniciar nada.

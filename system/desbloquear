@@ -1,0 +1,8 @@
+#!/bin/bash
+# Desbloquea el dispositivo suspendido
+IP="192.168.1.9"
+MAC="2a:c6:3d:f3:2a:b3"
+echo "Desbloqueando $IP..."
+echo 0207 | sudo -S iptables -D INPUT -s $IP -j DROP 2>/dev/null
+echo 0207 | sudo -S iptables -D OUTPUT -d $IP -j DROP 2>/dev/null
+echo "✅ Dispositivo desbloqueado"
