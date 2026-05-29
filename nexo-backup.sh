@@ -102,11 +102,16 @@ if [[ "$1" == "--restore" ]]; then
     echo "  ─────────────────────────────────"
     for i in "${!FILES[@]}"; do
         BASENAME=$(basename "${FILES[$i]}" .tar.gz.gpg)
-        FECHA=$(echo "$BASENAME" | sed 's/nexo-ecosystem-//')
+        BASENAME=$(basename "$BASENAME" .gpg)
+        if [[ "$BASENAME" == "latest-backup" ]]; then
+            FECHA="Último backup    "
+        else
+            FECHA=$(echo "$BASENAME" | sed 's/nexo-ecosystem-//')
+        fi
         TAM=$(du -h "${FILES[$i]}" | cut -f1)
         printf "  %-2d  %s  %s\n" $((i+1)) "$FECHA" "$TAM"
     done
-
+    
     echo ""
     read -p "➜ Elegí número (o 0 para cancelar): " CHOICE
     if [[ "$CHOICE" == "0" || -z "$CHOICE" ]]; then

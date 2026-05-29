@@ -120,7 +120,12 @@ else
     echo "  ─────────────────────────────────"
     for i in "${!FILES[@]}"; do
         BASENAME=$(basename "${FILES[$i]}" .tar.gz.gpg)
-        FECHA=$(echo "$BASENAME" | sed 's/nexo-ecosystem-//')
+        BASENAME=$(basename "$BASENAME" .gpg)  # por si las dudas
+        if [[ "$BASENAME" == "latest-backup" ]]; then
+            FECHA="Último backup    "
+        else
+            FECHA=$(echo "$BASENAME" | sed 's/nexo-ecosystem-//')
+        fi
         TAM=$(du -h "${FILES[$i]}" | cut -f1)
         printf "  %-2d  %s  %s\n" $((i+1)) "$FECHA" "$TAM"
     done
