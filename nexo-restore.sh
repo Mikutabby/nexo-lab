@@ -9,7 +9,7 @@
 #   3. Restaurar todo el ecosistema Nexo
 #
 # USO:
-#   curl -fsSL https://raw.githubusercontent.com/Mikutabby/nexo-lab/main/nexo-restore.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/Mikutabby/nexo-lab/master/nexo-restore.sh | bash
 #   ~~~~~~~~~~~ O ~~~~~~~~~~~~
 #   nexo-restore.sh              → restaurar desde backup local
 #   nexo-restore.sh --github     → descargar y restaurar desde GitHub
