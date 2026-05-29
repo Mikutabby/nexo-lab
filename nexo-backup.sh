@@ -113,7 +113,7 @@ if [[ "$1" == "--restore" ]]; then
     done
     
     echo ""
-    read -p "➜ Elegí número (o 0 para cancelar): " CHOICE
+    read -p "➜ Elegí número (o 0 para cancelar): " CHOICE </dev/tty
     if [[ "$CHOICE" == "0" || -z "$CHOICE" ]]; then
         echo "Cancelado."
         exit 0
@@ -147,7 +147,7 @@ if [[ "$1" == "--restore" ]]; then
 
     echo ""
     echo "⚠️  Esto va a SOBREESCRIBIR los archivos actuales."
-    read -p "➜ ¿Restaurar ahora? (s/N): " CONFIRM
+    read -p "➜ ¿Restaurar ahora? (s/N): " CONFIRM </dev/tty
     if [[ "$CONFIRM" != "s" && "$CONFIRM" != "S" ]]; then
         echo "Cancelado. El backup descifrado queda en: $DECRYPTED"
         exit 0
@@ -201,9 +201,9 @@ else
     echo "   (la misma passphrase la vas a necesitar para restaurar)"
     echo "   La passphrase SOLO la sabés vos, yo nunca la guardo."
     echo ""
-    read -s -p "➜ Passphrase: " PASSPHRASE
+    read -s -p "➜ Passphrase: " PASSPHRASE </dev/tty
     echo ""
-    read -s -p "➜ Repetir: " PASSPHRASE2
+    read -s -p "➜ Repetir: " PASSPHRASE2 </dev/tty
     echo ""
     if [[ "$PASSPHRASE" != "$PASSPHRASE2" ]]; then
         echo "❌ Las passphrases no coinciden."

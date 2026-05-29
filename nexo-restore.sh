@@ -62,7 +62,7 @@ if [[ "$1" == "--github" ]]; then
             echo "📖 Leyendo repo de $GITHUB_REPO_FILE"
         else
             echo "No hay repo configurado."
-            read -p "➜ URL del repo GitHub (ej: git@github.com:user/repo.git): " REPO
+            read -p "➜ URL del repo GitHub (ej: git@github.com:user/repo.git): " REPO </dev/tty
             if [[ -z "$REPO" ]]; then
                 echo "Cancelado."
                 exit 1
@@ -131,7 +131,7 @@ else
     done
 
     echo ""
-    read -p "➜ Elegí número (o 0 para cancelar): " CHOICE
+    read -p "➜ Elegí número (o 0 para cancelar): " CHOICE </dev/tty
     if [[ "$CHOICE" == "0" || -z "$CHOICE" ]]; then
         echo "Cancelado."
         exit 0
@@ -174,7 +174,7 @@ tar tzf "$DECRYPTED" 2>/dev/null | head -30
 echo "... y más archivos."
 echo ""
 
-read -p "➜ ¿Restaurar ahora? (s/N): " CONFIRM
+read -p "➜ ¿Restaurar ahora? (s/N): " CONFIRM </dev/tty
 if [[ "$CONFIRM" != "s" && "$CONFIRM" != "S" ]]; then
     echo "Cancelado."
     echo "El backup descifrado queda en: $DECRYPTED"
