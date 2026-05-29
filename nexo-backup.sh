@@ -15,7 +15,7 @@
 # NOTA: No usar set -e para evitar que errores menores maten el script
 # El manejo de errores se hace explícitamente donde es necesario
 
-VERSION="1.0"
+VERSION="1.1"
 NEXO_HOME="$HOME"
 BACKUP_DIR="$NEXO_HOME/nexo-backups"
 RESTORE_SCRIPT="$NEXO_HOME/.local/bin/nexo-restore.sh"
@@ -24,6 +24,9 @@ BACKUP_FILE="nexo-ecosystem-$TIMESTAMP.tar.gz"
 BACKUP_PATH="$BACKUP_DIR/$BACKUP_FILE"
 ENCRYPTED_FILE="$BACKUP_PATH.gpg"
 PASSFILE="$NEXO_HOME/.nexo-backup-pass"
+
+# Política de retención: mantener solo los últimos N backups
+RETENTION_COUNT=7
 
 # Archivos a respaldar
 INCLUDE=(
@@ -322,6 +325,26 @@ if [[ -f "$NEXO_HOME/.nexo-github-backup" ]]; then
     else
         echo "⚠️  No se pudo subir a GitHub (probá con 'gh auth setup-git' primero)"
     fi
+fi
+
+# ─── Limpieza de backups antiguos ──────────────
+echo "🧹 Limpiando backups antiguos (reteniendo últimos $RETENTION_COUNT)..."
+REMOVED=0
+while true; do
+    COUNT=$(ls -1 "$BACKUP_DIR"/nexo-ecosystem-*.tar.gz.gpg 2>/dev/null | wc -l)
+    if [[ "$COUNT" -le "$RETENTION_COUNT" ]]; then
+        break
+    fi
+    OLDEST=$(ls -t "$BACKUP_DIR"/nexo-ecosystem-*.tar.gz.gpg 2>/dev/null | tail -1)
+    if [[ -n "$OLDEST" ]]; then
+        rm -f "$OLDEST"
+        REMOVED=$((REMOVED + 1))
+    else
+        break
+    fi
+done
+if [[ "$REMOVED" -gt 0 ]]; then
+    echo "   Eliminados $REMOVED backup(s) antiguo(s)"
 fi
 
 echo "💡 Tip: Guardá esta passphrase en un lugar seguro."
