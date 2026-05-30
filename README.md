@@ -119,9 +119,69 @@ chmod +x install.sh
 ./install.sh
 ```
 
+### Opción 4: Instalación por conversación (con Nexo) 🗣️
+
+Si ya tenés **OpenCode** instalado y querés que **Nexo mismo** te guíe en la instalación:
+
+```bash
+# 1. Clonar el repo
+git clone https://github.com/Mikutabby/nexo-lab.git
+cd nexo-lab
+
+# 2. Configurar OpenCode con el agente de Nexo
+# Copiá agent/asistente.md a ~/.opencode/agents/
+cp agent/asistente.md ~/.opencode/agents/
+
+# 3. Iniciá OpenCode y decile:
+#    "quiero instalar esto" o "instalame el ecosistema"
+```
+
+Nexo **sabe instalar cada componente por separado**. Solo decile qué querés:
+
+| Decile a Nexo... | Y él instala... |
+|---|---|
+| "instalame las **dependencias**" | Paquetes base del sistema |
+| "quiero **voz**" | TTS + STT |
+| "poneme la **memoria**" | Knowledge Graph + memoria persistente |
+| "instalame las **herramientas**" | Tool Registry, Diary, Evaluator, Wake Word |
+| "copiame los **scripts**" | Scripts del sistema (face, temp, limpiar) |
+| "cargame el **agente**" | Archivo asistente.md |
+| "configurame el **sistema**" | Systemd + sudoers + crontab |
+| "instalame **ollama**" | IA local |
+| "haceme el **completo**" | Todo el ecosistema |
+| "**respaldame**" | Backup completo |
+
+Cada componente se instala con un solo comando:
+```bash
+./install.sh -c <componente>
+```
+
+> 💡 El instalador soporta instalación **modular**: `-c voz`, `-c graph`, `-c tools`, etc.
+> Usá `./install.sh --list` para ver todos los componentes disponibles.
+
 ---
 
-### ¿Qué hace el instalador?
+### Instalación modular por componentes
+
+El instalador ahora soporta **instalación por componentes individuales** con la flag `-c`:
+
+```bash
+# Ver componentes disponibles
+./install.sh --list
+
+# Instalar solo un componente
+./install.sh -c voz
+./install.sh -c graph
+./install.sh -c tools
+
+# Instalar múltiples componentes
+./install.sh -c dependencias -c sistema -c config
+
+# Instalar todo (por defecto)
+./install.sh
+```
+
+### ¿Qué hace el instalador completo?
 
 1. Pide tu contraseña **sudo** (para instalar dependencias y configurar servicios)
 2. Detecta tu gestor de paquetes (apt, dnf, pacman, zypper)
