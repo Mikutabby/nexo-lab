@@ -121,20 +121,16 @@ chmod +x install.sh
 
 ### Opción 4: Instalación por conversación (con Nexo) 🗣️
 
-Si ya tenés **OpenCode** instalado y querés que **Nexo mismo** te guíe en la instalación:
+**El instalador ya incluye OpenCode automáticamente.** Cloná, ejecutá y listo:
 
 ```bash
-# 1. Clonar el repo
 git clone https://github.com/Mikutabby/nexo-lab.git
 cd nexo-lab
-
-# 2. Configurar OpenCode con el agente de Nexo
-# Copiá agent/asistente.md a ~/.opencode/agents/
-cp agent/asistente.md ~/.opencode/agents/
-
-# 3. Iniciá OpenCode y decile:
-#    "quiero instalar esto" o "instalame el ecosistema"
+chmod +x install.sh
+./install.sh
 ```
+
+Al finalizar, ejecutá `opencode` y ya vas a tener a Nexo disponible como agente.
 
 Nexo **sabe instalar cada componente por separado**. Solo decile qué querés:
 
@@ -183,16 +179,17 @@ El instalador ahora soporta **instalación por componentes individuales** con la
 
 ### ¿Qué hace el instalador completo?
 
-1. Pide tu contraseña **sudo** (para instalar dependencias y configurar servicios)
-2. Detecta tu gestor de paquetes (apt, dnf, pacman, zypper)
-3. Instala dependencias del sistema (espeak-ng, python3, sqlite3, jq, curl)
-4. Instala dependencias Python (gTTS, edge-tts para TTS por cloud)
-5. Copia todos los scripts a `~/.local/bin/`
-6. Configura el Knowledge Graph (memoria persistente)
-7. Activa el servicio de rendimiento CPU (governor `performance`)
-8. Configura sudoers para el monitor de temperatura
-9. Instala el crontab del sistema
-10. Te ofrece instalar **Ollama** para funciones avanzadas (embeddings, diary, evaluator)
+1. **Instala OpenCode** automáticamente (AI coding agent donde vive Nexo)
+2. Verifica que tengas acceso **sudo sin contraseña** (si no, te indica cómo configurarlo)
+3. Detecta tu gestor de paquetes (apt, dnf, pacman, zypper)
+4. Instala dependencias del sistema (espeak-ng, python3, sqlite3, jq, curl)
+5. Instala dependencias Python (gTTS, edge-tts para TTS por cloud)
+6. Copia todos los scripts a `~/.local/bin/`
+7. Configura el Knowledge Graph (memoria persistente)
+8. Activa el servicio de rendimiento CPU (governor `performance`)
+9. Configura sudoers para el monitor de temperatura
+10. Instala el crontab del sistema
+11. Te ofrece instalar **Ollama** para funciones avanzadas (embeddings, diary, evaluator)
 
 ### 📦 Dependencias opcionales
 
@@ -207,7 +204,7 @@ El instalador ahora soporta **instalación por componentes individuales** con la
 | Problema | Causa | Solución |
 |----------|-------|----------|
 | `git clone` pide usuario/contraseña | Querés pushear o tenés un credential helper configurado | Usá la Opción 2 (ZIP) o configurá SSH |
-| `sudo: contraseña incorrecta` | Escribiste mal la contraseña | Ejecutá de nuevo el instalador con cuidado |
+| `sudo: contraseña incorrecta` | No tenés sudo sin contraseña configurado | Configurá NOPASSWD en sudoers o ejecutá `SUDO_PASS=tuclave ./install.sh` |
 | Ollama no se instala | No tenés curl o el script falló | Instalalo manual: `curl -fsSL https://ollama.com/install.sh \| sh` |
 | El TTS no suena | PulseAudio no está corriendo | Revisá `pulseaudio --start` o tu configuración de audio |
 | `face-recognize.py` no funciona | Falta OpenCV | `pip install --user opencv-python face_recognition` |

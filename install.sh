@@ -57,6 +57,7 @@ show_help() {
     echo "  sistema        Scripts del sistema (check-identity, temp-monitor, limpiar, etc)"
     echo "  agente         Archivo del agente (asistente.md) para OpenCode"
     echo "  config         Servicios systemd + sudoers + crontab"
+    echo "  opencode       Instalación de OpenCode (AI coding agent)"
     echo "  ollama         Instalación de Ollama + modelo nomic-embed-text"
     echo ""
     echo "EJEMPLOS:"
@@ -76,6 +77,7 @@ list_components() {
     echo -e "  ${GREEN}sistema${NC}       Scripts del sistema (face, temp, limpiar, etc)"
     echo -e "  ${GREEN}agente${NC}        Archivo asistente.md para OpenCode"
     echo -e "  ${GREEN}config${NC}        Systemd + sudoers + crontab"
+    echo -e "  ${GREEN}opencode${NC}      OpenCode (AI coding agent)"
     echo -e "  ${GREEN}ollama${NC}        Ollama + modelo nomic-embed-text"
     echo -e "  ${GREEN}todo${NC}          Instalar todo (por defecto)"
     echo ""
@@ -353,12 +355,50 @@ install_ollama() {
     fi
 }
 
+# ── 9. OpenCode ────────────────────────────────────────────────────────────
+install_opencode() {
+    header "OPENCODE (AI Coding Agent)"
+
+    if command -v opencode &>/dev/null; then
+        local oc_version
+        oc_version=$(opencode --version 2>/dev/null || echo "desconocida")
+        ok "OpenCode ya está instalado (versión $oc_version)"
+        return 0
+    fi
+
+    info "OpenCode no encontrado. Instalando desde opencode.ai..."
+    info "Descargando e instalando OpenCode..."
+
+    if command -v curl &>/dev/null; then
+        if curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path 2>&1; then
+            ok "OpenCode instalado correctamente en ~/.opencode/bin/"
+            # Agregar al PATH si no está
+            if [[ ":$PATH:" != *":$HOME/.opencode/bin:"* ]]; then
+                export PATH="$HOME/.opencode/bin:$PATH"
+                info "OpenCode agregado al PATH de la sesión actual"
+            fi
+            # Asegurar que el directorio de agentes exista
+            mkdir -p "$HOME/.opencode/agents"
+        else
+            warn "No se pudo instalar OpenCode automáticamente."
+            warn "Instalalo manualmente: curl -fsSL https://opencode.ai/install | bash"
+            return 1
+        fi
+    else
+        err "curl no está instalado. Instalá curl primero para descargar OpenCode."
+        return 1
+    fi
+
+    ok "Componente 'opencode' instalado"
+}
+
 # ── Instalar TODO ──────────────────────────────────────────────────────────
 install_all() {
     header "INSTALACIÓN COMPLETA"
     echo "Se instalará el ecosistema Nexo completo."
     echo ""
 
+    install_opencode
     install_deps
     install_voice
     install_graph
@@ -449,7 +489,7 @@ done
 # Si no se especificaron componentes después del parsing
 if [[ ${#COMPONENTS[@]} -eq 0 ]]; then
     err "No se especificaron componentes. Usá -c <componente>"
-    echo "Componentes disponibles: dependencias, voz, graph, tools, sistema, agente, config, ollama"
+    echo "Componentes disponibles: dependencias, voz, graph, tools, sistema, agente, config, opencode, ollama"
     exit 1
 fi
 
@@ -487,6 +527,10 @@ for comp in "${COMPONENTS[@]}"; do
             ;;
         config|configuración|configuracion)
             install_config
+            INSTALLED=$((INSTALLED + 1))
+            ;;
+        opencode|oc)
+            install_opencode
             INSTALLED=$((INSTALLED + 1))
             ;;
         ollama)
