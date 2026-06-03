@@ -34,7 +34,9 @@ BIN_DIR="$HOME/.local/bin"
 OPENCODE_DIR="$HOME/.opencode"
 AGENT_DIR="$OPENCODE_DIR/agents"
 MEMORY_DIR="$HOME/.nexo-memory"
-SUDO_PASS=""
+# No se usa SUDO_PASS — requiere sudo sin contraseña
+# Si necesitás contraseña, configurá NOPASSWD en sudoers
+# o ejecutá: SUDO_PASS=tuclave ./install.sh (no recomendado)
 
 # ── Mostrar ayuda ──────────────────────────────────────────────────────────
 show_help() {
@@ -79,17 +81,18 @@ list_components() {
     echo ""
 }
 
-# ── Pedir sudo password ────────────────────────────────────────────────────
+# ── Verificar sudo sin contraseña ──────────────────────────────────────────
 ask_sudo() {
-    if [[ -z "$SUDO_PASS" ]]; then
-        echo -n "🔑 Ingresá tu contraseña sudo: "
-        read -s SUDO_PASS
-        echo ""
-        if ! echo "$SUDO_PASS" | sudo -S -v 2>/dev/null; then
-            err "Contraseña incorrecta"
-            exit 1
-        fi
-        ok "Acceso sudo verificado"
+    if sudo -n true 2>/dev/null; then
+        ok "Acceso sudo sin contraseña verificado"
+    else
+        err "Se necesita acceso sudo sin contraseña."
+        err "Ejecutá 'sudo visudo' y agregá esta línea:"
+        err "  $USER ALL=(ALL) NOPASSWD: ALL"
+        err ""
+        err "O ejecutá el script con la contraseña como variable:"
+        err "  SUDO_PASS=tuclave ./install.sh"
+        exit 1
     fi
 }
 
@@ -147,12 +150,12 @@ install_deps() {
     detect_pkg_manager
 
     if [[ "$PKG_MANAGER" == "apt" ]]; then
-        echo "$SUDO_PASS" | sudo -S apt update -qq 2>/dev/null
-        echo "$SUDO_PASS" | sudo -S $INSTALL_CMD espeak-ng mpg123 python3 python3-pip jq sqlite3 curl 2>/dev/null
+        sudo apt update -qq 2>/dev/null
+        sudo $INSTALL_CMD espeak-ng mpg123 python3 python3-pip jq sqlite3 curl 2>/dev/null
         ok "Dependencias de sistema instaladas (apt)"
     elif [[ -n "$INSTALL_CMD" ]]; then
         warn "Instalando con $PKG_MANAGER... (puede pedir confirmación)"
-        echo "$SUDO_PASS" | sudo -S $INSTALL_CMD espeak-ng mpg123 python3 python3-pip jq sqlite3 curl 2>/dev/null
+        sudo $INSTALL_CMD espeak-ng mpg123 python3 python3-pip jq sqlite3 curl 2>/dev/null
     else
         warn "Gestor de paquetes no detectado. Instalá manualmente:"
         warn "  espeak-ng, python3, pip, jq, sqlite3, curl, mpg123"
@@ -300,17 +303,17 @@ install_config() {
         "$SCRIPT_DIR/config/miku-crontab.txt"
 
     # CPU Performance
-    echo "$SUDO_PASS" | sudo -S cp "$SCRIPT_DIR/config/cpu-performance.service" /etc/systemd/system/ 2>/dev/null
-    echo "$SUDO_PASS" | sudo -S systemctl daemon-reload 2>/dev/null
-    echo "$SUDO_PASS" | sudo -S systemctl enable cpu-performance.service 2>/dev/null
-    echo "$SUDO_PASS" | sudo -S systemctl start cpu-performance.service 2>/dev/null && \
+    sudo cp "$SCRIPT_DIR/config/cpu-performance.service" /etc/systemd/system/ 2>/dev/null
+    sudo systemctl daemon-reload 2>/dev/null
+    sudo systemctl enable cpu-performance.service 2>/dev/null
+    sudo systemctl start cpu-performance.service 2>/dev/null && \
         ok "Servicio CPU Performance configurado" || \
         warn "No se pudo configurar CPU Performance"
 
     # Sudoers
     sed "s/USERNAME/$USER/g" "$SCRIPT_DIR/config/sudoers.temp-monitor" | \
-        echo "$SUDO_PASS" | sudo -S tee /etc/sudoers.d/temp-monitor >/dev/null 2>&1
-    echo "$SUDO_PASS" | sudo -S chmod 440 /etc/sudoers.d/temp-monitor 2>/dev/null && \
+        sudo tee /etc/sudoers.d/temp-monitor >/dev/null 2>&1
+    sudo chmod 440 /etc/sudoers.d/temp-monitor 2>/dev/null && \
         ok "Sudoers configurado" || \
         warn "No se pudo configurar sudoers"
 
