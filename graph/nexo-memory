@@ -57,8 +57,7 @@ lock_memory() {
 
 unlock_memory() {
   if [[ ! -f "$MEMORY_GPG" ]]; then
-    echo "❌ No hay memoria bloqueada."
-    exit 1
+    return 1
   fi
   echo -n "🔑 Ingresá la contraseña de la memoria: "
   read -s PASS
@@ -67,8 +66,16 @@ unlock_memory() {
   if echo "$PASS" | gpg --batch --yes --passphrase-fd 0 -o "$MEMORY_FILE" -d "$MEMORY_GPG" 2>/dev/null; then
     rm -f "$MEMORY_GPG"
   else
-    echo "❌ Contraseña incorrecta o archivo corrupto."
+    echo "❌ Contraseña incorrecta."
     rm -f "$MEMORY_FILE" 2>/dev/null
+    echo -n "❓ ¿Querés crear una memoria nueva desde cero? (s/N): "
+    read -r ANS
+    if [[ "$ANS" =~ ^[sS]$ ]]; then
+      rm -f "$MEMORY_GPG" "$GRAPH_GPG" 2>/dev/null
+      ensure_dirs
+      echo "✅ Memoria nueva creada."
+      return 0
+    fi
     exit 1
   fi
   # Descifrar graph.db si existe
