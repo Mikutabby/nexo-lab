@@ -4,19 +4,100 @@
 
 MEMORY_DIR="$HOME/.nexo-memory"
 MEMORY_FILE="$MEMORY_DIR/memory.json"
+MEMORY_GPG="$MEMORY_DIR/memory.json.gpg"
+GRAPH_DB="$MEMORY_DIR/graph.db"
+GRAPH_GPG="$MEMORY_DIR/graph.db.gpg"
 LOG_DIR="$MEMORY_DIR/log"
 LEARN_DIR="$MEMORY_DIR/learned"
 
 ensure_dirs() {
   mkdir -p "$MEMORY_DIR" "$LOG_DIR" "$LEARN_DIR"
-  [[ -f "$MEMORY_FILE" ]] || {
-    echo '{"version":1,"last_updated":"","nexo":{"name":"Nexo","creator":"mikuyasha"},"user":{"name":"miku","preferences":{},"facts":[]},"network":{"devices":{}},"learned_patterns":{"user_habits":[],"common_tasks":[],"errors_fixes":[],"improvements":[]},"pending_actions":[]}' > "$MEMORY_FILE"
-  }
+  # Si no hay memoria (ni json ni gpg), crear una limpia
+  if [[ ! -f "$MEMORY_FILE" && ! -f "$MEMORY_GPG" ]]; then
+    echo '{"version":1,"last_updated":"","nexo":{"name":"Nexo","creator":""},"user":{"name":"","preferences":{},"facts":[]},"network":{"devices":{}},"learned_patterns":{"user_habits":[],"common_tasks":[],"errors_fixes":[],"improvements":[]},"pending_actions":[]}' > "$MEMORY_FILE"
+  fi
+}
+
+# ── Cifrar/descifrar con GPG ──────────────────────────────────────────────
+lock_memory() {
+  ensure_dirs
+  if [[ ! -f "$MEMORY_FILE" ]]; then
+    echo "❌ No hay memoria para bloquear. Usá 'nexo-memory save' primero."
+    exit 1
+  fi
+  if [[ -f "$MEMORY_GPG" ]]; then
+    echo "⚠️  La memoria ya está bloqueada."
+    exit 0
+  fi
+  echo -n "🔑 Creá una contraseña para la memoria: "
+  read -s PASS1
+  echo ""
+  echo -n "🔑 Repetí la contraseña: "
+  read -s PASS2
+  echo ""
+  if [[ "$PASS1" != "$PASS2" ]]; then
+    echo "❌ Las contraseñas no coinciden."
+    exit 1
+  fi
+  if [[ -z "$PASS1" ]]; then
+    echo "❌ La contraseña no puede estar vacía."
+    exit 1
+  fi
+  # Cifrar memory.json
+  echo "$PASS1" | gpg --batch --yes --passphrase-fd 0 --symmetric --cipher-algo AES256 -o "$MEMORY_GPG" "$MEMORY_FILE" 2>/dev/null
+  # Cifrar graph.db si existe
+  if [[ -f "$GRAPH_DB" ]]; then
+    echo "$PASS1" | gpg --batch --yes --passphrase-fd 0 --symmetric --cipher-algo AES256 -o "$GRAPH_GPG" "$GRAPH_DB" 2>/dev/null
+  fi
+  # Eliminar originales
+  rm -f "$MEMORY_FILE" "$GRAPH_DB"
+  echo "✅ Memoria bloqueada con AES256. Los archivos originales fueron eliminados."
+  echo "   Para acceder de nuevo: nexo-memory unlock"
+}
+
+unlock_memory() {
+  if [[ ! -f "$MEMORY_GPG" ]]; then
+    echo "❌ No hay memoria bloqueada."
+    exit 1
+  fi
+  echo -n "🔑 Ingresá la contraseña de la memoria: "
+  read -s PASS
+  echo ""
+  # Descifrar memory.json
+  if echo "$PASS" | gpg --batch --yes --passphrase-fd 0 -o "$MEMORY_FILE" -d "$MEMORY_GPG" 2>/dev/null; then
+    rm -f "$MEMORY_GPG"
+  else
+    echo "❌ Contraseña incorrecta o archivo corrupto."
+    rm -f "$MEMORY_FILE" 2>/dev/null
+    exit 1
+  fi
+  # Descifrar graph.db si existe
+  if [[ -f "$GRAPH_GPG" ]]; then
+    if echo "$PASS" | gpg --batch --yes --passphrase-fd 0 -o "$GRAPH_DB" -d "$GRAPH_GPG" 2>/dev/null; then
+      rm -f "$GRAPH_GPG"
+    else
+      echo "⚠️  No se pudo descifrar el knowledge graph (contraseña incorrecta o archivo corrupto)"
+      rm -f "$GRAPH_GPG"
+    fi
+  fi
+  echo "✅ Memoria desbloqueada."
 }
 
 case "${1:-load}" in
+  lock)
+    lock_memory
+    ;;
+    
+  unlock)
+    unlock_memory
+    ;;
+    
   load)
-    # Cargar memoria y mostrar resumen para el asistente
+    # Si está bloqueada, pedir unlock automático
+    if [[ -f "$MEMORY_GPG" && ! -f "$MEMORY_FILE" ]]; then
+      echo "🔒 La memoria está bloqueada."
+      unlock_memory
+    fi
     ensure_dirs
     echo "=== 🧠 NEXO MEMORY ==="
     echo "Última actualización: $(jq -r '.last_updated' "$MEMORY_FILE" 2>/dev/null || echo 'desconocido')"
@@ -62,6 +143,17 @@ case "${1:-load}" in
     echo ""
     echo "--- PENDIENTES ---"
     jq -r '.pending_actions[]? | "  [\(.status)] \(.task): \(.description)"' "$MEMORY_FILE" 2>/dev/null
+    
+    echo ""
+    echo "--- REGLAS APRENDIDAS ---"
+    if [[ -f "$LEARN_DIR/reglas-aprendidas.json" ]]; then
+        jq -r '.[] | "  ✅ \(.regla): \(.descripcion)"' "$LEARN_DIR/reglas-aprendidas.json" 2>/dev/null
+    else
+        echo "  (aún no hay reglas aprendidas)"
+    fi
+    if [[ -f "$LEARN_DIR/ultimo-analisis.txt" ]]; then
+        echo "  📊 Último análisis: $(head -1 "$LEARN_DIR/ultimo-analisis.txt" 2>/dev/null)"
+    fi
     
     echo ""
     echo "--- IDENTIDAD ---"
@@ -208,6 +300,8 @@ case "${1:-load}" in
     echo "  log [nivel] [msg]   - Registrar interacción"
     echo "  learn       - Auto-aprendizaje automático"
     echo "  status      - Estado del sistema"
+    echo "  lock        - 🔒 Bloquear memoria con contraseña (cifrado AES256)"
+    echo "  unlock      - 🔓 Desbloquear memoria con contraseña"
     echo "  graph ...   - Pasar comando a nexo-graph"
     echo "               (add, search, warm-profile, tree, stats, etc.)"
     ;;
