@@ -10,6 +10,11 @@
 #       ./install.sh -c config         → Instala solo la configuración
 #       ./install.sh -c dependencias   → Instala solo dependencias
 #       ./install.sh -c ollama         → Instala solo Ollama
+#       ./install.sh -c memory         → Instala memoria avanzada
+#       ./install.sh -c hermes         → Instala integración Hermes
+#       ./install.sh -c skills         → Instala sistema de skills
+#       ./install.sh -c brain          → Instala brain daemon
+#       ./install.sh -c audio          → Instala diagnósticos de audio
 #
 # Cada componente es independiente y se puede instalar por separado.
 # Ideal para instalación conversacional guiada por Nexo.
@@ -34,9 +39,7 @@ BIN_DIR="$HOME/.local/bin"
 OPENCODE_DIR="$HOME/.opencode"
 AGENT_DIR="$OPENCODE_DIR/agents"
 MEMORY_DIR="$HOME/.nexo-memory"
-# No se usa SUDO_PASS — requiere sudo sin contraseña
-# Si necesitás contraseña, configurá NOPASSWD en sudoers
-# o ejecutá: SUDO_PASS=tuclave ./install.sh (no recomendado)
+# Soporta sudo sin contraseña o SUDO_PASS=clave ./install.sh
 
 # ── Mostrar ayuda ──────────────────────────────────────────────────────────
 show_help() {
@@ -51,14 +54,19 @@ show_help() {
     echo ""
     echo "COMPONENTES:"
     echo "  dependencias   Dependencias del sistema (espeak-ng, python3, sqlite3, jq, etc)"
-    echo "  voz            TTS (say.sh) + STT (voice.sh)"
+    echo "  voz            TTS (say.sh) + STT (voice.sh) + Wake Word"
     echo "  graph          Knowledge Graph (nexo-graph) + Memoria (nexo-memory)"
-    echo "  tools          Tool Registry + Diary + Evaluator + Wake Word"
+    echo "  tools          Tool Registry + Diary + Evaluator"
     echo "  sistema        Scripts del sistema (check-identity, temp-monitor, limpiar, etc)"
     echo "  agente         Archivo del agente (asistente.md) para OpenCode"
     echo "  config         Servicios systemd + sudoers + crontab"
     echo "  opencode       Instalación de OpenCode (AI coding agent)"
     echo "  ollama         Instalación de Ollama + modelo nomic-embed-text"
+    echo "  memory         Memoria avanzada (organize, semantic-enhance, skill-creator)"
+    echo "  hermes         Integración Hermes Agent (wrapper + OpenRouter)"
+    echo "  skills         Sistema de skills/plugins"
+    echo "  brain          Brain daemon + IA"
+    echo "  audio          Diagnósticos de audio"
     echo ""
     echo "EJEMPLOS:"
     echo "  ./install.sh -c dependencias  # Solo dependencias"
@@ -71,30 +79,54 @@ show_help() {
 list_components() {
     header "COMPONENTES DISPONIBLES"
     echo -e "  ${GREEN}dependencias${NC}  Dependencias base del sistema"
-    echo -e "  ${GREEN}voz${NC}           TTS + STT (say.sh, voice.sh)"
+    echo -e "  ${GREEN}voz${NC}           TTS + STT + Wake Word"
     echo -e "  ${GREEN}graph${NC}         Knowledge Graph + Memoria persistente"
-    echo -e "  ${GREEN}tools${NC}         Tool Registry + Diary + Evaluator + Wake Word"
+    echo -e "  ${GREEN}tools${NC}         Tool Registry + Diary + Evaluator"
     echo -e "  ${GREEN}sistema${NC}       Scripts del sistema (face, temp, limpiar, etc)"
     echo -e "  ${GREEN}agente${NC}        Archivo asistente.md para OpenCode"
     echo -e "  ${GREEN}config${NC}        Systemd + sudoers + crontab"
     echo -e "  ${GREEN}opencode${NC}      OpenCode (AI coding agent)"
     echo -e "  ${GREEN}ollama${NC}        Ollama + modelo nomic-embed-text"
+    echo -e "  ${GREEN}memory${NC}        Memoria avanzada (organize, semantic, skill-creator)"
+    echo -e "  ${GREEN}hermes${NC}        Hermes Agent wrapper + integración"
+    echo -e "  ${GREEN}skills${NC}        Sistema de skills/plugins"
+    echo -e "  ${GREEN}brain${NC}         Brain daemon + IA"
+    echo -e "  ${GREEN}audio${NC}         Diagnósticos de audio"
     echo -e "  ${GREEN}todo${NC}          Instalar todo (por defecto)"
     echo ""
 }
 
-# ── Verificar sudo sin contraseña ──────────────────────────────────────────
+# ── Verificar sudo ─────────────────────────────────────────────────────────
+# Soporta: 1) sudo sin contraseña, 2) SUDO_PASS=clave ./install.sh
 ask_sudo() {
     if sudo -n true 2>/dev/null; then
         ok "Acceso sudo sin contraseña verificado"
+        return 0
+    fi
+    # Si se pasó SUDO_PASS como variable de entorno, verificar que funcione
+    if [[ -n "${SUDO_PASS:-}" ]]; then
+        if echo "$SUDO_PASS" | sudo -S true 2>/dev/null; then
+            ok "Acceso sudo con SUDO_PASS verificado"
+            return 0
+        else
+            err "SUDO_PASS configurado pero no funciona. Verificá la contraseña."
+        fi
+    fi
+    err "Se necesita acceso sudo."
+    err "Opción 1: Configurar sin contraseña:"
+    err "  sudo visudo  → agregar: $USER ALL=(ALL) NOPASSWD: ALL"
+    err ""
+    err "Opción 2: Pasar la contraseña:"
+    err "  SUDO_PASS=tuclave ./install.sh"
+    exit 1
+}
+
+# Wrapper para ejecutar comandos sudo con SUDO_PASS si está disponible
+run_sudo() {
+    if [[ -n "${SUDO_PASS:-}" ]]; then
+        echo "$SUDO_PASS" | sudo -S "$@" 2>/dev/null
     else
-        err "Se necesita acceso sudo sin contraseña."
-        err "Ejecutá 'sudo visudo' y agregá esta línea:"
-        err "  $USER ALL=(ALL) NOPASSWD: ALL"
-        err ""
-        err "O ejecutá el script con la contraseña como variable:"
-        err "  SUDO_PASS=tuclave ./install.sh"
-        exit 1
+        sudo "$@"
     fi
 }
 
@@ -152,12 +184,12 @@ install_deps() {
     detect_pkg_manager
 
     if [[ "$PKG_MANAGER" == "apt" ]]; then
-        sudo apt update -qq 2>/dev/null
-        sudo $INSTALL_CMD espeak-ng mpg123 python3 python3-pip jq sqlite3 curl 2>/dev/null
+        run_sudo apt update -qq 2>/dev/null
+        run_sudo $INSTALL_CMD espeak-ng mpg123 python3 python3-pip jq sqlite3 curl 2>/dev/null
         ok "Dependencias de sistema instaladas (apt)"
     elif [[ -n "$INSTALL_CMD" ]]; then
         warn "Instalando con $PKG_MANAGER... (puede pedir confirmación)"
-        sudo $INSTALL_CMD espeak-ng mpg123 python3 python3-pip jq sqlite3 curl 2>/dev/null
+        run_sudo $INSTALL_CMD espeak-ng mpg123 python3 python3-pip jq sqlite3 curl 2>/dev/null
     else
         warn "Gestor de paquetes no detectado. Instalá manualmente:"
         warn "  espeak-ng, python3, pip, jq, sqlite3, curl, mpg123"
@@ -204,6 +236,13 @@ install_voice() {
     cp "$SCRIPT_DIR/voice/say.sh" "$OPENCODE_DIR/"
     cp "$SCRIPT_DIR/voice/voice.sh" "$OPENCODE_DIR/"
     chmod +x "$OPENCODE_DIR/say.sh" "$OPENCODE_DIR/voice.sh"
+
+    # nexo-wake: wake word detector
+    if [[ -f "$SCRIPT_DIR/voice/nexo-wake" ]]; then
+        cp "$SCRIPT_DIR/voice/nexo-wake" "$BIN_DIR/"
+        chmod +x "$BIN_DIR/nexo-wake"
+        ok "Wake word detector instalado"
+    fi
 
     # Verificar TTS
     if command -v espeak-ng &>/dev/null; then
@@ -305,17 +344,17 @@ install_config() {
         "$SCRIPT_DIR/config/miku-crontab.txt"
 
     # CPU Performance
-    sudo cp "$SCRIPT_DIR/config/cpu-performance.service" /etc/systemd/system/ 2>/dev/null
-    sudo systemctl daemon-reload 2>/dev/null
-    sudo systemctl enable cpu-performance.service 2>/dev/null
-    sudo systemctl start cpu-performance.service 2>/dev/null && \
+    run_sudo cp "$SCRIPT_DIR/config/cpu-performance.service" /etc/systemd/system/ 2>/dev/null
+    run_sudo systemctl daemon-reload 2>/dev/null
+    run_sudo systemctl enable cpu-performance.service 2>/dev/null
+    run_sudo systemctl start cpu-performance.service 2>/dev/null && \
         ok "Servicio CPU Performance configurado" || \
         warn "No se pudo configurar CPU Performance"
 
     # Sudoers
     sed "s/USERNAME/$USER/g" "$SCRIPT_DIR/config/sudoers.temp-monitor" | \
-        sudo tee /etc/sudoers.d/temp-monitor >/dev/null 2>&1
-    sudo chmod 440 /etc/sudoers.d/temp-monitor 2>/dev/null && \
+        run_sudo tee /etc/sudoers.d/temp-monitor >/dev/null 2>&1
+    run_sudo chmod 440 /etc/sudoers.d/temp-monitor 2>/dev/null && \
         ok "Sudoers configurado" || \
         warn "No se pudo configurar sudoers"
 
@@ -392,6 +431,93 @@ install_opencode() {
     ok "Componente 'opencode' instalado"
 }
 
+# ── 10. Memoria Avanzada ─────────────────────────────────────────────────
+install_memory() {
+    header "MEMORIA AVANZADA"
+    create_dirs
+    verify_files \
+        "$SCRIPT_DIR/memory/nexo-memory-organize" \
+        "$SCRIPT_DIR/memory/nexo-semantic-enhance"
+
+    cp "$SCRIPT_DIR/memory/"* "$BIN_DIR/"
+    chmod +x "$BIN_DIR/nexo-memory-"* "$BIN_DIR/nexo-skill-creator" 2>/dev/null
+
+    # Generar embeddings iniciales
+    info "Generando embeddings iniciales..."
+    "$BIN_DIR/nexo-semantic-enhance" 2>/dev/null && \
+        ok "Embeddings generados" || \
+        warn "No se pudieron generar embeddings — ejecutá nexo-semantic-enhance después"
+
+    ok "Componente 'memory' instalado"
+}
+
+# ── 11. Hermes Integration ────────────────────────────────────────────────
+install_hermes() {
+    header "HERMES AGENT INTEGRATION"
+    create_dirs
+
+    # Wrapper
+    if [[ -f "$SCRIPT_DIR/hermes/hermes" ]]; then
+        cp "$SCRIPT_DIR/hermes/hermes" "$BIN_DIR/"
+        chmod +x "$BIN_DIR/hermes"
+        ok "Hermes wrapper instalado"
+    fi
+
+    # Config
+    mkdir -p "$HOME/.hermes"
+    if [[ -f "$SCRIPT_DIR/hermes/hermes" ]] && [[ ! -f "$HOME/.hermes/config.yaml" ]]; then
+        warn "Configurá Hermes manualmente: hermes setup"
+    fi
+
+    ok "Componente 'hermes' instalado"
+}
+
+# ── 12. Skills System ─────────────────────────────────────────────────────
+install_skills() {
+    header "SKILLS SYSTEM"
+    create_dirs
+    verify_files \
+        "$SCRIPT_DIR/skills/nexo-skill"
+
+    cp "$SCRIPT_DIR/skills/nexo-skill" "$BIN_DIR/"
+    cp "$SCRIPT_DIR/skills/nexo-skill-creator" "$BIN_DIR/" 2>/dev/null
+    chmod +x "$BIN_DIR/nexo-skill" "$BIN_DIR/nexo-skill-creator" 2>/dev/null
+
+    # Crear directorio de skills
+    mkdir -p "$HOME/.nexo-skills"
+
+    ok "Componente 'skills' instalado"
+}
+
+# ── 13. Brain (Daemon + IA) ───────────────────────────────────────────────
+install_brain() {
+    header "BRAIN (DAEMON + IA)"
+    create_dirs
+    verify_files \
+        "$SCRIPT_DIR/brain/nexo-brain.py" \
+        "$SCRIPT_DIR/brain/nexo-daemon.sh"
+
+    cp "$SCRIPT_DIR/brain/nexo-brain.py" "$BIN_DIR/"
+    cp "$SCRIPT_DIR/brain/nexo-daemon.sh" "$BIN_DIR/"
+    chmod +x "$BIN_DIR/nexo-brain.py" "$BIN_DIR/nexo-daemon.sh"
+
+    ok "Componente 'brain' instalado"
+}
+
+# ── 14. Audio Diagnostics ─────────────────────────────────────────────────
+install_audio() {
+    header "AUDIO DIAGNOSTICS"
+    create_dirs
+
+    if [[ -f "$SCRIPT_DIR/system/nexo-audio-diagnostico.sh" ]]; then
+        cp "$SCRIPT_DIR/system/nexo-audio-diagnostico.sh" "$BIN_DIR/"
+        chmod +x "$BIN_DIR/nexo-audio-diagnostico.sh"
+        ok "Audio diagnostics instalado"
+    fi
+
+    ok "Componente 'audio' instalado"
+}
+
 # ── Instalar TODO ──────────────────────────────────────────────────────────
 install_all() {
     header "INSTALACIÓN COMPLETA"
@@ -406,6 +532,11 @@ install_all() {
     install_system
     install_agent
     install_config
+    install_memory
+    install_hermes
+    install_skills
+    install_brain
+    install_audio
 
     # Backup
     verify_files "$SCRIPT_DIR/backup/migrar-miku.sh" 2>/dev/null
@@ -440,8 +571,10 @@ install_all() {
     echo "   🎤 Voz:        $OPENCODE_DIR/"
     echo ""
     echo "   Comandos: nexo-graph, nexo-memory, nexo-tools, nexo-diary,"
-    echo "             nexo-evaluate, nexo-wake, limpiar, face-recognize,"
-    echo "             temp-monitor, nexo-harden"
+    echo "             nexo-evaluate, nexo-wake, nexo-skill, nexo-skill-creator,"
+    echo "             nexo-memory-organize, nexo-semantic-enhance,"
+    echo "             nexo-brain, nexo-daemon, hermes,"
+    echo "             limpiar, face-recognize, temp-monitor, nexo-harden"
     echo ""
     echo "   🔄 Backup:     ~/migrar-miku.sh"
     echo "   🌐 GitHub:     https://github.com/Mikutabby/nexo-lab"
@@ -489,7 +622,7 @@ done
 # Si no se especificaron componentes después del parsing
 if [[ ${#COMPONENTS[@]} -eq 0 ]]; then
     err "No se especificaron componentes. Usá -c <componente>"
-    echo "Componentes disponibles: dependencias, voz, graph, tools, sistema, agente, config, opencode, ollama"
+    echo "Componentes: dependencias, voz, graph, tools, sistema, agente, config, opencode, ollama, memory, hermes, skills, brain, audio"
     exit 1
 fi
 
@@ -535,6 +668,26 @@ for comp in "${COMPONENTS[@]}"; do
             ;;
         ollama)
             install_ollama
+            INSTALLED=$((INSTALLED + 1))
+            ;;
+        memory|memoria-avanzada)
+            install_memory
+            INSTALLED=$((INSTALLED + 1))
+            ;;
+        hermes)
+            install_hermes
+            INSTALLED=$((INSTALLED + 1))
+            ;;
+        skills|plugins)
+            install_skills
+            INSTALLED=$((INSTALLED + 1))
+            ;;
+        brain|cerebro)
+            install_brain
+            INSTALLED=$((INSTALLED + 1))
+            ;;
+        audio|sonido)
+            install_audio
             INSTALLED=$((INSTALLED + 1))
             ;;
         *)
