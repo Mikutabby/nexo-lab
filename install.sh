@@ -381,37 +381,165 @@ install_ollama() {
 install_opencode() {
     header "OPENCODE (AI Coding Agent)"
 
+    # Verificar si ya está instalado
     if command -v opencode &>/dev/null; then
         local oc_version
         oc_version=$(opencode --version 2>/dev/null || echo "desconocida")
         ok "OpenCode ya está instalado (versión $oc_version)"
+        configure_opencode
         return 0
     fi
 
-    info "OpenCode no encontrado. Instalando desde opencode.ai..."
-    info "Descargando e instalando OpenCode..."
+    # Verificar en ruta manual
+    if [[ -f "$HOME/.opencode/bin/opencode" ]]; then
+        ok "OpenCode encontrado en ~/.opencode/bin/"
+        export PATH="$HOME/.opencode/bin:$PATH"
+        configure_opencode
+        return 0
+    fi
 
-    if command -v curl &>/dev/null; then
-        if curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path 2>&1; then
-            ok "OpenCode instalado correctamente en ~/.opencode/bin/"
-            # Agregar al PATH si no está
-            if [[ ":$PATH:" != *":$HOME/.opencode/bin:"* ]]; then
-                export PATH="$HOME/.opencode/bin:$PATH"
-                info "OpenCode agregado al PATH de la sesión actual"
-            fi
-            # Asegurar que el directorio de agentes exista
-            mkdir -p "$HOME/.opencode/agents"
-        else
-            warn "No se pudo instalar OpenCode automáticamente."
-            warn "Instalalo manualmente: curl -fsSL https://opencode.ai/install | bash"
-            return 1
-        fi
-    else
-        err "curl no está instalado. Instalá curl primero para descargar OpenCode."
+    info "OpenCode no encontrado. Instalando automáticamente..."
+    info "Descargando desde opencode.ai..."
+
+    # Verificar curl
+    if ! command -v curl &>/dev/null; then
+        err "curl no está instalado. Instalá curl primero."
         return 1
     fi
 
-    ok "Componente 'opencode' instalado"
+    # Crear directorio temporal
+    local TMP_DIR
+    TMP_DIR=$(mktemp -d)
+    trap "rm -rf $TMP_DIR" EXIT
+
+    # Descargar e instalar
+    if curl -fsSL https://opencode.ai/install -o "$TMP_DIR/install.sh" 2>/dev/null; then
+        if bash "$TMP_DIR/install.sh" --no-modify-path 2>&1; then
+            ok "OpenCode descargado e instalado"
+        else
+            warn "El instalador falló. Intentando instalación manual..."
+            install_opencode_manual
+        fi
+    else
+        warn "No se pudo descargar el instalador. Intentando instalación manual..."
+        install_opencode_manual
+    fi
+
+    # Verificar instalación
+    if [[ -f "$HOME/.opencode/bin/opencode" ]]; then
+        export PATH="$HOME/.opencode/bin:$PATH"
+        ok "OpenCode instalado en ~/.opencode/bin/"
+        configure_opencode
+    else
+        err "No se pudo instalar OpenCode"
+        return 1
+    fi
+}
+
+# Instalación manual de OpenCode
+install_opencode_manual() {
+    info "Instalación manual de OpenCode..."
+
+    # Detectar arquitectura
+    local ARCH
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        x86_64)  ARCH="amd64" ;;
+        aarch64) ARCH="arm64" ;;
+        armv7l)  ARCH="armv7" ;;
+        *)       err "Arquitectura no soportada: $ARCH"; return 1 ;;
+    esac
+
+    # Detectar SO
+    local OS
+    OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+    case "$OS" in
+        linux)  OS="linux" ;;
+        darwin) OS="darwin" ;;
+        *)      err "SO no soportado: $OS"; return 1 ;;
+    esac
+
+    # Descargar binario
+    local DOWNLOAD_URL="https://github.com/opencode-ai/opencode/releases/latest/download/opencode-${OS}-${ARCH}"
+    local INSTALL_DIR="$HOME/.opencode/bin"
+    mkdir -p "$INSTALL_DIR"
+
+    info "Descargando opencode para ${OS}-${ARCH}..."
+    if curl -fsSL "$DOWNLOAD_URL" -o "$INSTALL_DIR/opencode" 2>/dev/null; then
+        chmod +x "$INSTALL_DIR/opencode"
+        ok "Binario descargado"
+    else
+        err "No se pudo descargar opencode"
+        return 1
+    fi
+}
+
+# Configurar OpenCode después de instalar
+configure_opencode() {
+    local OC_DIR="$HOME/.opencode"
+    local AGENTS_DIR="$OC_DIR/agents"
+    local CONFIG_FILE="$OC_DIR/opencode.json"
+
+    # Crear directorios
+    mkdir -p "$AGENTS_DIR"
+
+    # Copiar agente si no existe
+    if [[ ! -f "$AGENTS_DIR/asistente.md" ]]; then
+        if [[ -f "$SCRIPT_DIR/agent/asistente.md" ]]; then
+            cp "$SCRIPT_DIR/agent/asistente.md" "$AGENTS_DIR/"
+            ok "Agente asistente.md instalado"
+        fi
+    else
+        ok "Agente asistente.md ya existe"
+    fi
+
+    # Copiar configuración si no existe
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        if [[ -f "$SCRIPT_DIR/config/opencode.jsonc" ]]; then
+            cp "$SCRIPT_DIR/config/opencode.jsonc" "$CONFIG_FILE"
+            ok "Configuración opencode.json instalada"
+        fi
+    else
+        ok "Configuración opencode.json ya existe"
+    fi
+
+    # Crear style-local.md si no existe (necesario para el agente)
+    local STYLE_FILE="$AGENTS_DIR/style-local.md"
+    if [[ ! -f "$STYLE_FILE" ]]; then
+        cat > "$STYLE_FILE" << 'STYLE_EOF'
+# Style Local — Configuración del agente Nexo
+
+## Identidad
+- Nombre: Nexo
+- Creador: mikuyasha (miku)
+- Rol: Asistente autónomo del hogar
+
+## Comportamiento
+- Hablar siempre antes de ejecutar
+- Respuestas cortas y conversacionales
+- Modo relajado por defecto, serio para código
+- Aprender de cada interacción
+
+## Permisos
+- bash: allow
+- read: allow
+- edit: allow
+- write: allow
+- sudo: allow
+STYLE_EOF
+        ok "style-local.md creado"
+    fi
+
+    # Agregar al PATH si no está en bashrc
+    if ! grep -q 'export PATH="$HOME/.opencode/bin:$PATH"' "$HOME/.bashrc" 2>/dev/null; then
+        echo '' >> "$HOME/.bashrc"
+        echo '# OpenCode' >> "$HOME/.bashrc"
+        echo 'export PATH="$HOME/.opencode/bin:$PATH"' >> "$HOME/.bashrc"
+        ok "OpenCode agregado al PATH en ~/.bashrc"
+    fi
+
+    ok "OpenCode configurado correctamente"
+    info "Ejecutá 'source ~/.bashrc' o reiniciá la terminal"
 }
 
 # ── 10. Memoria Avanzada ─────────────────────────────────────────────────
