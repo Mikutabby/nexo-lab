@@ -1,0 +1,93 @@
+#!/bin/bash
+# Nexo-Hermes Integration Script
+# Demostración de cómo usar Hermes Agent desde Nexo
+
+echo "🔗 Nexo-Hermes Integration Demo"
+echo "================================"
+
+# Verificar si Hermes está instalado
+if ! command -v hermes &> /dev/null; then
+    echo "❌ Hermes no está en PATH. Usando ruta completa..."
+    HERMES_CMD="$HOME/.hermes/hermes-agent/venv/bin/hermes"
+else
+    HERMES_CMD="hermes"
+fi
+
+# Verificar instalación
+echo "1. Verificando instalación de Hermes..."
+$HERMES_CMD --version 2>/dev/null || echo "⚠️  Hermes no está configurado correctamente"
+
+# Ver configuración actual
+echo ""
+echo "2. Configuración actual de Hermes..."
+echo "   - Directorio: ~/.hermes/"
+echo "   - Config: ~/.hermes/config.yaml"
+echo "   - Memoria: ~/.hermes/memories/"
+echo "   - Skills: ~/.hermes/hermes-agent/skills/"
+
+# Mostrar scripts creados
+echo ""
+echo "3. Scripts de integración creados:"
+echo "   - nexo-memory-enhance: Mejora sistema de memoria"
+echo "   - nexo-skill-creator: Crea habilidades automáticamente"
+echo "   - nexo-hermes-integration: Este script"
+
+# Ejemplo de uso de Hermes
+echo ""
+echo "4. Ejemplo de uso de Hermes:"
+echo "   # Iniciar chat interactivo"
+echo "   hermes"
+echo ""
+echo "   # Configurar modelo"
+echo "   hermes model"
+echo ""
+echo "   # Ver skills disponibles"
+echo "   hermes skills list"
+echo ""
+echo "   # Ejecutar tarea en segundo plano"
+echo "   hermes -z 'Analiza mi configuración de red'"
+
+# Demostración de memoria mejorada
+echo ""
+echo "5. Demostración de memoria mejorada:"
+python3 -c "
+import sqlite3
+from pathlib import Path
+
+db_path = Path.home() / '.nexo-memory' / 'graph.db'
+if db_path.exists():
+    conn = sqlite3.connect(str(db_path))
+    cursor = conn.cursor()
+    
+    # Verificar tablas nuevas
+    cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table'\")
+    tables = [row[0] for row in cursor.fetchall()]
+    
+    print('   Tablas en base de datos:')
+    for table in tables:
+        if table.startswith('conversation_summaries') or table.startswith('learned_patterns') or table.startswith('auto_skills'):
+            print(f'   ✅ {table}')
+    
+    # Contar registros
+    for table in ['conversation_summaries', 'learned_patterns', 'auto_skills']:
+        if table in tables:
+            cursor.execute(f'SELECT COUNT(*) FROM {table}')
+            count = cursor.fetchone()[0]
+            print(f'   📊 {table}: {count} registros')
+    
+    conn.close()
+else:
+    print('   ⚠️  Base de datos no encontrada')
+"
+
+echo ""
+echo "6. Próximos pasos:"
+echo "   a) Configurar API key en ~/.hermes/.env"
+echo "   b) Ejecutar: hermes setup (en terminal interactiva)"
+echo "   c) Probar: hermes -z 'Hola, soy Nexo'"
+echo "   d) Integrar scripts en flujo de trabajo"
+
+echo ""
+echo "✅ Integración Nexo-Hermes completada"
+echo "📚 Documentación: ~/.hermes/hermes-agent/AGENTS.md"
+echo "🔧 Scripts: ~/.local/bin/nexo-*"

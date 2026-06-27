@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexo UI — HUD</title>
+<link rel="stylesheet" href="/static/css/hud.css">
+</head>
+<body>
+<div class="scanlines"></div>
+<div class="hud-container">
+    <!-- Panel izquierdo: Info del sistema -->
+    <div class="panel panel-left">
+        <div class="panel-title">⎧ SISTEMA</div>
+        <div class="panel-divider"></div>
+        <div class="stat-row">
+            <span class="stat-label">CPU</span>
+            <span class="stat-value" id="cpu-val">0%</span>
+            <div class="stat-bar"><div class="stat-bar-fill" id="cpu-bar"></div></div>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">RAM</span>
+            <span class="stat-value" id="ram-val">0%</span>
+            <div class="stat-bar"><div class="stat-bar-fill" id="ram-bar"></div></div>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">TEMP</span>
+            <span class="stat-value" id="temp-val">0°C</span>
+            <div class="stat-bar"><div class="stat-bar-fill" id="temp-bar"></div></div>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">DISCO</span>
+            <span class="stat-value" id="disk-val">0%</span>
+            <div class="stat-bar"><div class="stat-bar-fill" id="disk-bar"></div></div>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">UPTIME</span>
+            <span class="stat-value" id="uptime-val">—</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">HOST</span>
+            <span class="stat-value" id="host-val">—</span>
+        </div>
+    </div>
+
+    <!-- Centro: Radar HUD + estado Nexo -->
+    <div class="panel panel-center">
+        <div class="hud-radar">
+            <div class="radar-circle outer"></div>
+            <div class="radar-circle middle"></div>
+            <div class="radar-circle inner"></div>
+            <div class="radar-sweep" id="radar-sweep"></div>
+            <div class="radar-center">
+                <div class="nexo-logo">N</div>
+            </div>
+            <div class="radar-dots">
+                <div class="dot" style="top:30%;left:50%;animation-delay:0s"></div>
+                <div class="dot" style="top:60%;left:30%;animation-delay:0.5s"></div>
+                <div class="dot" style="top:40%;left:70%;animation-delay:1s"></div>
+                <div class="dot" style="top:70%;left:65%;animation-delay:1.5s"></div>
+            </div>
+        </div>
+        <div class="nexo-status" id="nexo-status">INACTIVO</div>
+        <div class="status-indicator" id="status-indicator"></div>
+        <div class="command-display" id="command-display">Esperando comandos...</div>
+        <div class="response-display" id="response-display"></div>
+    </div>
+
+    <!-- Panel derecho: Conversación + Acciones -->
+    <div class="panel panel-right">
+        <div class="panel-title">⎧ COMANDOS</div>
+        <div class="panel-divider"></div>
+        <div class="quick-actions">
+            <button class="action-btn" onclick="sendCommand('hora')">🕐 Hora</button>
+            <button class="action-btn" onclick="sendCommand('clima')">🌤 Clima</button>
+            <button class="action-btn" onclick="sendCommand('estado sistema')">📊 Estado</button>
+            <button class="action-btn" onclick="sendCommand('limpiar')">🧹 Limpiar</button>
+        </div>
+        <div class="panel-title" style="margin-top:16px">⎧ HISTORIAL</div>
+        <div class="panel-divider"></div>
+        <div class="history-log" id="history-log">
+            <div class="history-empty">— Sin actividad —</div>
+        </div>
+        <div class="panel-divider"></div>
+        <div class="input-area">
+            <input type="text" id="command-input" placeholder="Escribí un comando..." />
+            <button id="send-btn" onclick="sendCommand()">⏎</button>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/hud.js"></script>
+</body>
+</html>

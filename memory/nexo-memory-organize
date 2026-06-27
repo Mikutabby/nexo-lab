@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+"""
+Nexo Memory Organizer - Organiza inteligentemente los hechos en categorías
+"""
+
+import json
+import sqlite3
+from pathlib import Path
+from datetime import datetime
+import re
+
+class NexoMemoryOrganizer:
+    def __init__(self):
+        self.memory_path = Path.home() / ".nexo-memory" / "memory.json"
+        self.db_path = Path.home() / ".nexo-memory" / "graph.db"
+        
+        # Categorías definidas con patrones de detección
+        self.categories = {
+            "identidad": {
+                "name": "Identidad Personal",
+                "description": "Datos personales, nombres, números de teléfono",
+                "patterns": [
+                    r"nombre", r"teléfono", r"número", r"whatsapp", r"colombia",
+                    r"mikuyasha", r"miku", r"creador", r"identidad"
+                ]
+            },
+            "hardware": {
+                "name": "Hardware y Dispositivos",
+                "description": "PCs, componentes, periféricos",
+                "patterns": [
+                    r"pc", r"cpu", r"ram", r"disco", r"hdd", r"ssd", r"mouse",
+                    r"teclado", r"monitor", r"impresora", r"celeron", r"usb"
+                ]
+            },
+            "red": {
+                "name": "Red y Conectividad",
+                "description": "IPs, dispositivos de red, configuración",
+                "patterns": [
+                    r"192\.168", r"ip", r"mac", r"router", r"modem", r"wifi",
+                    r"ethernet", r"red", r"gateway", r"subnet", r"arpspoof"
+                ]
+            },
+            "proyectos": {
+                "name": "Proyectos",
+                "description": "Repositorios, aplicaciones, trabajos",
+                "patterns": [
+                    r"github", r"repo", r"proyecto", r"nexo-lab", r"nexo-ui",
+                    r"purificador", r"orth-abyss", r"nyvoris", r"whatsapp.*bridge"
+                ]
+            },
+            "herramientas": {
+                "name": "Herramientas y Scripts",
+                "description": "Scripts, utilidades, comandos",
+                "patterns": [
+                    r"script", r"comando", r"nexo-", r"tool", r"herramienta",
+                    r"watchdog", r"backup", r"graph", r"memory"
+                ]
+            },
+            "configuracion": {
+                "name": "Configuración del Sistema",
+                "description": "Ajustes, configuraciones, preferencias",
+                "patterns": [
+                    r"config", r"configur", r"instal", r"setup", r"opencode",
+                    r"ollama", r"provider", r"modelo", r"dns"
+                ]
+            },
+            "mejoras": {
+                "name": "Mejoras y Optimizaciones",
+                "description": "Optimizaciones, fixes, mejoras de rendimiento",
+                "patterns": [
+                    r"optimiz", r"mejor", r"fix", r"bug", r"rendimiento",
+                    r"velocidad", r"ram", r"cpu", r"batería", r"rendimiento"
+                ]
+            },
+            "seguridad": {
+                "name": "Seguridad",
+                "description": "Protocolos, autenticación, protección",
+                "patterns": [
+                    r"seguridad", r"contraseña", r"verific", r"protocolo",
+                    r"secret", r"auth", r"bloquear", r"firewall"
+                ]
+            },
+            "comunicacion": {
+                "name": "Comunicación y Voz",
+                "description": "TTS, voz, mensajería",
+                "patterns": [
+                    r"tts", r"voz", r"hablar", r"whatsapp", r"mensaje",
+                    r"piper", r"gtts", r"espeak", r"audio"
+                ]
+            },
+            "preferencias": {
+                "name": "Preferencias del Usuario",
+                "description": "Gustos, hábitos, preferencias de Miku",
+                "patterns": [
+                    r"gusta", r"prefiere", r"hábito", r"costumbre",
+                    r"quiere", r"necesita", r"le gusta"
+                ]
+            },
+            "pendientes": {
+                "name": "Tareas Pendientes",
+                "description": "Cosas por hacer, recordatorios",
+                "patterns": [
+                    r"pendiente", r"por hacer", r"falta", r"necesito",
+                    r"quiero.*hacer", r"planeado", r"próximo"
+                ]
+            }
+        }
+    
+    def load_memory(self):
+        """Carga el archivo memory.json"""
+        with open(self.memory_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    
+    def categorize_fact(self, fact):
+        """Categoriza un hecho basado en patrones"""
+        fact_lower = fact.lower()
+        scores = {}
+        
+        for category, config in self.categories.items():
+            score = 0
+            for pattern in config["patterns"]:
+                if re.search(pattern, fact_lower):
+                    score += 1
+            if score > 0:
+                scores[category] = score
+        
+        if scores:
+            # Retorna la categoría con mayor puntuación
+            return max(scores, key=scores.get)
+        else:
+            return "otros"
+    
+    def organize_facts(self, memory_data):
+        """Organiza todos los hechos en categorías"""
+        organized = {cat: [] for cat in self.categories}
+        organized["otros"] = []
+        
+        facts = memory_data.get("user", {}).get("facts", [])
+        
+        for fact in facts:
+            category = self.categorize_fact(fact)
+            organized[category].append(fact)
+        
+        return organized
+    
+    def create_categorized_graph_nodes(self, organized_facts):
+        """Crea nodos organizados en el grafo de conocimiento"""
+        conn = sqlite3.connect(str(self.db_path))
+        cursor = conn.cursor()
+        
+        # Crear tabla para hechos organizados si no existe
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS organized_facts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                fact TEXT NOT NULL,
+                priority INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Limpiar tabla existente
+        cursor.execute('DELETE FROM organized_facts')
+        
+        # Insertar hechos organizados
+        for category, facts in organized_facts.items():
+            for i, fact in enumerate(facts):
+                cursor.execute('''
+                    INSERT INTO organized_facts (category, fact, priority)
+                    VALUES (?, ?, ?)
+                ''', (category, fact, len(facts) - i))  # Prioridad por orden
+        
+        conn.commit()
+        conn.close()
+        
+        return len(sum(organized_facts.values(), []))
+    
+    def create_category_summary(self, organized_facts):
+        """Crea un resumen de las categorías"""
+        summary = {
+            "total_facts": 0,
+            "categories": {},
+            "generated_at": datetime.now().isoformat()
+        }
+        
+        for category, facts in organized_facts.items():
+            if facts:
+                summary["categories"][category] = {
+                    "count": len(facts),
+                    "name": self.categories.get(category, {}).get("name", category),
+                    "description": self.categories.get(category, {}).get("description", ""),
+                    "sample_facts": facts[:3]  # Primeros 3 como ejemplo
+                }
+                summary["total_facts"] += len(facts)
+        
+        return summary
+    
+    def save_organized_memory(self, memory_data, organized_facts):
+        """Guarda la memoria organizada"""
+        # Crear copia de seguridad
+        backup_path = self.memory_path.with_suffix('.json.backup-organized')
+        with open(backup_path, 'w', encoding='utf-8') as f:
+            json.dump(memory_data, f, indent=2, ensure_ascii=False)
+        
+        # Actualizar memory.json con hechos organizados
+        memory_data["organized_facts"] = organized_facts
+        memory_data["last_organized"] = datetime.now().isoformat()
+        
+        with open(self.memory_path, 'w', encoding='utf-8') as f:
+            json.dump(memory_data, f, indent=2, ensure_ascii=False)
+    
+    def run(self):
+        """Ejecuta el proceso de organización"""
+        print("🧠 Nexo Memory Organizer")
+        print("=" * 50)
+        
+        # Cargar memoria
+        print("📂 Cargando memoria...")
+        memory_data = self.load_memory()
+        
+        # Organizar hechos
+        print("🔍 Organizando hechos en categorías...")
+        organized_facts = self.organize_facts(memory_data)
+        
+        # Crear nodos en el grafo
+        print("📊 Creando nodos organizados en el grafo...")
+        total_facts = self.create_categorized_graph_nodes(organized_facts)
+        
+        # Crear resumen
+        summary = self.create_category_summary(organized_facts)
+        
+        # Guardar memoria organizada
+        print("💾 Guardando memoria organizada...")
+        self.save_organized_memory(memory_data, organized_facts)
+        
+        # Mostrar resultados
+        print("\n✅ Organización completada!")
+        print(f"📊 Total de hechos organizados: {total_facts}")
+        print("\n📁 Categorías creadas:")
+        
+        for category, info in summary["categories"].items():
+            print(f"  • {info['name']}: {info['count']} hechos")
+            if info['sample_facts']:
+                print(f"    Ejemplo: {info['sample_facts'][0][:60]}...")
+        
+        return summary
+
+def main():
+    organizer = NexoMemoryOrganizer()
+    organizer.run()
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+"""
+Nexo Auto-Skill Creator
+Crea habilidades automáticamente a partir de tareas exitosas
+"""
+
+import json
+import sqlite3
+from datetime import datetime
+from pathlib import Path
+import hashlib
+
+class NexoAutoSkillCreator:
+    def __init__(self, db_path):
+        self.db_path = db_path
+        self.conn = sqlite3.connect(db_path)
+    
+    def analyze_task_trajectory(self, trajectory):
+        """Analiza una trayectoria de tarea para identificar patrones"""
+        if not trajectory:
+            return None
+        
+        # Extraer pasos clave
+        steps = []
+        tools_used = set()
+        success_indicators = []
+        
+        for action in trajectory:
+            if action.get("type") == "tool_call":
+                tools_used.add(action.get("tool", ""))
+                steps.append({
+                    "tool": action.get("tool", ""),
+                    "args": action.get("args", {}),
+                    "result": action.get("result", "")[:100]  # Truncar resultado
+                })
+            elif action.get("type") == "success":
+                success_indicators.append(action.get("message", ""))
+        
+        return {
+            "steps": steps,
+            "tools_used": list(tools_used),
+            "success_indicators": success_indicators,
+            "step_count": len(steps)
+        }
+    
+    def create_skill_from_trajectory(self, task_name, trajectory, success_rate=1.0):
+        """Crea una habilidad a partir de una trayectoria exitosa"""
+        analysis = self.analyze_task_trajectory(trajectory)
+        
+        if not analysis or analysis["step_count"] < 2:
+            return None  # No crear habilidad para tareas muy simples
+        
+        # Generar nombre de habilidad
+        skill_name = f"auto_{task_name.lower().replace(' ', '_')}"
+        
+        # Crear procedimiento estructurado
+        procedure = {
+            "steps": [step["tool"] for step in analysis["steps"]],
+            "detailed_steps": analysis["steps"],
+            "tools_required": analysis["tools_used"],
+            "success_indicators": analysis["success_indicators"],
+            "estimated_time": f"{analysis['step_count'] * 30} segundos",
+            "difficulty": self._calculate_difficulty(analysis)
+        }
+        
+        # Crear descripción
+        description = f"Habilidad auto-creada para: {task_name}"
+        
+        # Guardar en base de datos
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO auto_skills 
+            (skill_name, description, procedure, success_rate)
+            VALUES (?, ?, ?, ?)
+        ''', (skill_name, description, json.dumps(procedure), success_rate))
+        
+        self.conn.commit()
+        
+        # Crear archivo de habilidad
+        self._create_skill_file(skill_name, description, procedure)
+        
+        return {
+            "skill_name": skill_name,
+            "description": description,
+            "procedure": procedure,
+            "file_path": f"~/.nexo-skills/{skill_name}.md"
+        }
+    
+    def _calculate_difficulty(self, analysis):
+        """Calcula la dificultad de una tarea"""
+        step_count = analysis["step_count"]
+        tool_variety = len(analysis["tools_used"])
+        
+        if step_count <= 3 and tool_variety <= 2:
+            return "baja"
+        elif step_count <= 6 and tool_variety <= 4:
+            return "media"
+        else:
+            return "alta"
+    
+    def _create_skill_file(self, skill_name, description, procedure):
+        """Crea un archivo de habilidad"""
+        skills_dir = Path.home() / ".nexo-skills"
+        skills_dir.mkdir(exist_ok=True)
+        
+        skill_content = f"""# {skill_name.replace('_', ' ').title()}
+
+## Descripción
+{description}
+
+## Procedimiento
+"""
+        
+        for i, step in enumerate(procedure["detailed_steps"], 1):
+            skill_content += f"""
+### Paso {i}: {step['tool']}
+- **Herramienta**: `{step['tool']}`
+- **Argumentos**: `{json.dumps(step['args'], indent=2)}`
+- **Resultado esperado**: {step['result'][:100]}...
+"""
+        
+        skill_content += f"""
+## Herramientas Requeridas
+{', '.join(procedure['tools_required'])}
+
+## Métricas de Éxito
+- **Tasa de éxito**: {procedure.get('success_rate', 1.0) * 100}%
+- **Tiempo estimado**: {procedure['estimated_time']}
+- **Dificultad**: {procedure['difficulty']}
+
+## Indicadores de Éxito
+"""
+        
+        for indicator in procedure["success_indicators"]:
+            skill_content += f"- {indicator}\n"
+        
+        skill_content += f"""
+## Notas
+- Esta habilidad fue auto-generada el {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+- Puede ser mejorada manualmente o por el sistema de auto-mejora
+"""
+        
+        skill_file = skills_dir / f"{skill_name}.md"
+        skill_file.write_text(skill_content)
+    
+    def improve_skill(self, skill_name, new_trajectory, success):
+        """Mejora una habilidad existente con nueva experiencia"""
+        cursor = self.conn.cursor()
+        
+        # Obtener habilidad actual
+        cursor.execute('''
+            SELECT procedure, success_rate, usage_count
+            FROM auto_skills
+            WHERE skill_name = ?
+        ''', (skill_name,))
+        
+        row = cursor.fetchone()
+        if not row:
+            return None
+        
+        procedure, success_rate, usage_count = row
+        procedure_data = json.loads(procedure)
+        
+        # Actualizar métricas
+        new_usage_count = usage_count + 1
+        if success:
+            new_success_rate = (success_rate * usage_count + 1.0) / new_usage_count
+        else:
+            new_success_rate = (success_rate * usage_count) / new_usage_count
+        
+        # Actualizar procedimiento si hay nueva trayectoria
+        if new_trajectory:
+            new_analysis = self.analyze_task_trajectory(new_trajectory)
+            if new_analysis:
+                # Combinar con procedimiento existente
+                procedure_data["detailed_steps"].extend(new_analysis["steps"])
+                procedure_data["tools_required"] = list(
+                    set(procedure_data["tools_required"] + new_analysis["tools_used"])
+                )
+        
+        # Actualizar en base de datos
+        cursor.execute('''
+            UPDATE auto_skills 
+            SET procedure = ?, success_rate = ?, usage_count = ?,
+                last_used = CURRENT_TIMESTAMP
+            WHERE skill_name = ?
+        ''', (json.dumps(procedure_data), new_success_rate, new_usage_count, skill_name))
+        
+        self.conn.commit()
+        
+        # Actualizar archivo de habilidad
+        self._create_skill_file(
+            skill_name,
+            f"Habilidad auto-creada mejorada para: {skill_name.replace('auto_', '').replace('_', ' ')}",
+            procedure_data
+        )
+        
+        return {
+            "skill_name": skill_name,
+            "new_success_rate": new_success_rate,
+            "new_usage_count": new_usage_count,
+            "improved": True
+        }
+    
+    def close(self):
+        """Cierra la conexión a la base de datos"""
+        self.conn.close()
+
+def main():
+    """Función principal de demostración"""
+    db_path = Path.home() / ".nexo-memory" / "graph.db"
+    
+    if not db_path.exists():
+        print("❌ No se encontró la base de datos de Nexo")
+        return
+    
+    creator = NexoAutoSkillCreator(str(db_path))
+    
+    print("✅ Creador automático de habilidades inicializado")
+    
+    # Ejemplo de trayectoria de tarea
+    print("\n📝 Ejemplo: Crear habilidad a partir de trayectoria")
+    
+    sample_trajectory = [
+        {
+            "type": "tool_call",
+            "tool": "bash",
+            "args": {"command": "ls -la"},
+            "result": "total 64\ndrwxr-xr-x 8 miku miku 4096 jun 27 09:04 ."
+        },
+        {
+            "type": "tool_call",
+            "tool": "read_file",
+            "args": {"path": "/home/miku/.bashrc"},
+            "result": "# ~/.bashrc\n\n# If not running interactively..."
+        },
+        {
+            "type": "tool_call",
+            "tool": "edit_file",
+            "args": {"path": "/home/miku/.bashrc", "content": "# Add new line"},
+            "result": "File edited successfully"
+        },
+        {
+            "type": "success",
+            "message": "Configuración actualizada exitosamente"
+        }
+    ]
+    
+    skill_result = creator.create_skill_from_trajectory(
+        "configurar entorno",
+        sample_trajectory,
+        success_rate=0.95
+    )
+    
+    if skill_result:
+        print(f"   Habilidad creada: {skill_result['skill_name']}")
+        print(f"   Archivo: {skill_result['file_path']}")
+        print(f"   Pasos: {len(skill_result['procedure']['detailed_steps'])}")
+    
+    # Ejemplo de mejora de habilidad
+    print("\n🔄 Ejemplo: Mejorar habilidad existente")
+    
+    if skill_result:
+        improvement_result = creator.improve_skill(
+            skill_result["skill_name"],
+            sample_trajectory,
+            success=True
+        )
+        
+        if improvement_result:
+            print(f"   Habilidad mejorada: {improvement_result['skill_name']}")
+            print(f"   Nueva tasa de éxito: {improvement_result['new_success_rate']:.2%}")
+            print(f"   Usos totales: {improvement_result['new_usage_count']}")
+    
+    creator.close()
+    print("\n✅ Ejemplos completados exitosamente")
+
+if __name__ == "__main__":
+    main()

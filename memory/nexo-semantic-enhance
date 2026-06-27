@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""
+Nexo Semantic Search Enhancement
+Mejora la búsqueda semántica con embeddings ligeros basados en TF-IDF
+"""
+
+import sqlite3
+import json
+import math
+from pathlib import Path
+from collections import Counter
+import re
+
+class NexoSemanticSearch:
+    def __init__(self):
+        self.db_path = Path.home() / ".nexo-memory" / "graph.db"
+        self.stop_words = {
+            "el", "la", "los", "las", "un", "una", "unos", "unas",
+            "de", "del", "al", "en", "con", "por", "para", "sin",
+            "es", "son", "está", "están", "hay", "tiene", "tienen",
+            "que", "se", "no", "sí", "más", "muy", "todo", "todos",
+            "y", "o", "pero", "si", "como", "cuando", "donde", "quien",
+            "este", "esta", "estos", "estas", "ese", "esa", "esos", "esas",
+            "a", "ante", "bajo", "cabe", "con", "contra", "de", "desde",
+            "durante", "en", "entre", "hacia", "hasta", "mediante", "para",
+            "por", "según", "sin", "so", "sobre", "tras", "versus", "vía"
+        }
+    
+    def extract_features(self, text):
+        """Extrae características del texto para embedding"""
+        text_lower = text.lower()
+        
+        # Limpiar texto
+        words = re.findall(r'\b\w+\b', text_lower)
+        
+        # Filtrar stop words y palabras cortas
+        words = [w for w in words if w not in self.stop_words and len(w) > 2]
+        
+        # Contar frecuencias
+        word_freq = Counter(words)
+        
+        # Calcular TF-IDF simplificado
+        total_words = len(words) if words else 1
+        tf = {word: count / total_words for word, count in word_freq.items()}
+        
+        return tf
+    
+    def cosine_similarity(self, vec1, vec2):
+        """Calcula similitud coseno entre dos vectores"""
+        if not vec1 or not vec2:
+            return 0.0
+        
+        # Obtener palabras comunes
+        common_words = set(vec1.keys()) & set(vec2.keys())
+        
+        if not common_words:
+            return 0.0
+        
+        # Calcular dot product
+        dot_product = sum(vec1[word] * vec2[word] for word in common_words)
+        
+        # Calcular magnitudes
+        mag1 = math.sqrt(sum(v ** 2 for v in vec1.values()))
+        mag2 = math.sqrt(sum(v ** 2 for v in vec2.values()))
+        
+        if mag1 == 0 or mag2 == 0:
+            return 0.0
+        
+        return dot_product / (mag1 * mag2)
+    
+    def generate_lightweight_embedding(self, text):
+        """Genera un embedding ligero basado en TF-IDF"""
+        features = self.extract_features(text)
+        
+        # Convertir a vector denso (top 100 palabras más frecuentes)
+        all_words = sorted(features.keys(), key=lambda x: features[x], reverse=True)
+        top_words = all_words[:100]
+        
+        # Crear vector
+        vector = [features.get(word, 0.0) for word in top_words]
+        
+        return {
+            "words": top_words,
+            "vector": vector,
+            "method": "tfidf_lightweight"
+        }
+    
+    def store_embedding(self, node_id, text):
+        """Guarda embedding para un nodo"""
+        embedding = self.generate_lightweight_embedding(text)
+        
+        conn = sqlite3.connect(str(self.db_path))
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            UPDATE memory_nodes 
+            SET embedding = ? 
+            WHERE id = ?
+        ''', (json.dumps(embedding), node_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return embedding
+    
+    def search_similar(self, query, limit=10):
+        """Busca nodos similares usando embeddings"""
+        query_embedding = self.generate_lightweight_embedding(query)
+        
+        conn = sqlite3.connect(str(self.db_path))
+        cursor = conn.cursor()
+        
+        # Obtener todos los nodos con embeddings
+        cursor.execute('''
+            SELECT id, name, description, data, embedding 
+            FROM memory_nodes 
+            WHERE embedding != '' AND embedding IS NOT NULL
+        ''')
+        
+        results = []
+        for row in cursor.fetchall():
+            node_id, name, description, data, embedding_json = row
+            
+            if embedding_json:
+                try:
+                    node_embedding = json.loads(embedding_json)
+                    
+                    # Calcular similitud de palabras clave
+                    query_words = set(query_embedding["words"])
+                    node_words = set(node_embedding["words"]) if isinstance(node_embedding, dict) and "words" in node_embedding else set()
+                    
+                    # Similitud de Jaccard simplificada
+                    if query_words and node_words:
+                        intersection = len(query_words & node_words)
+                        union = len(query_words | node_words)
+                        similarity = intersection / union if union > 0 else 0.0
+                    else:
+                        similarity = 0.0
+                    
+                    # También buscar en el texto directamente
+                    text_content = f"{name} {description} {data}".lower()
+                    query_lower = query.lower()
+                    
+                    # Boost si el query aparece en el texto
+                    if query_lower in text_content:
+                        similarity += 0.3
+                    
+                    # Boost por palabras individuales
+                    for word in query_lower.split():
+                        if word in text_content and len(word) > 3:
+                            similarity += 0.1
+                    
+                    if similarity > 0.05:  # Umbral mínimo
+                        results.append({
+                            "id": node_id,
+                            "name": name,
+                            "description": description,
+                            "data": data[:200] + "..." if len(data) > 200 else data,
+                            "similarity": similarity
+                        })
+                except json.JSONDecodeError:
+                    continue
+        
+        conn.close()
+        
+        # Ordenar por similitud
+        results.sort(key=lambda x: x["similarity"], reverse=True)
+        
+        return results[:limit]
+    
+    def populate_all_embeddings(self):
+        """Puebla embeddings para todos los nodos"""
+        conn = sqlite3.connect(str(self.db_path))
+        cursor = conn.cursor()
+        
+        # Obtener nodos sin embedding
+        cursor.execute('''
+            SELECT id, name, description, data 
+            FROM memory_nodes 
+            WHERE embedding = '' OR embedding IS NULL
+        ''')
+        
+        nodes = cursor.fetchall()
+        conn.close()
+        
+        count = 0
+        for node_id, name, description, data in nodes:
+            # Combinar texto para embedding
+            text = f"{name} {description} {data}"
+            self.store_embedding(node_id, text)
+            count += 1
+            
+            if count % 10 == 0:
+                print(f"  📊 Procesados {count} nodos...")
+        
+        return count
+    
+    def run(self):
+        """Ejecuta la mejora de búsqueda semántica"""
+        print("🔍 Nexo Semantic Search Enhancement")
+        print("=" * 50)
+        
+        # Poblar embeddings
+        print("📊 Poblando embeddings para todos los nodos...")
+        count = self.populate_all_embeddings()
+        
+        print(f"\n✅ Embeddings generados para {count} nodos")
+        
+        # Probar búsqueda
+        print("\n🧪 Probando búsqueda semántica...")
+        test_queries = [
+            "whatsapp messenger",
+            "configuración red",
+            "proyectos github",
+            "optimización rendimiento"
+        ]
+        
+        for query in test_queries:
+            print(f"\n🔍 Búsqueda: '{query}'")
+            results = self.search_similar(query, limit=3)
+            
+            if results:
+                for i, result in enumerate(results, 1):
+                    print(f"  {i}. {result['name']} (similitud: {result['similarity']:.3f})")
+                    print(f"     {result['data'][:80]}...")
+            else:
+                print("  ❌ Sin resultados")
+        
+        return count
+
+def main():
+    enhancer = NexoSemanticSearch()
+    enhancer.run()
+
+if __name__ == "__main__":
+    main()

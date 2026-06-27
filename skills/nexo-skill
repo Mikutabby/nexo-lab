@@ -1,0 +1,206 @@
+#!/bin/bash
+# nexo-skill: Sistema de Skills (plugins) para Nexo
+# Uso:
+#   nexo-skill list              → Listar skills instalados
+#   nexo-skill info <skill>      → Info de un skill
+#   nexo-skill run <skill> <cmd> → Ejecutar comando de un skill
+#   nexo-skill create <nombre>   → Crear skill template
+#   nexo-skill reload            → Recargar todos los skills
+
+set -uo pipefail
+
+SKILLS_DIR="$HOME/.nexo-skills"
+REGISTRY_FILE="$SKILLS_DIR/.registry.json"
+
+mkdir -p "$SKILLS_DIR"
+
+# ─── Cargar registro de skills ───────────────────────────────────────
+load_registry() {
+    if [ -f "$REGISTRY_FILE" ]; then
+        cat "$REGISTRY_FILE"
+    else
+        echo '{"skills":{}}' > "$REGISTRY_FILE"
+        echo '{"skills":{}}'
+    fi
+}
+
+save_registry() {
+    echo "$1" > "$REGISTRY_FILE"
+}
+
+discover_skills() {
+    local registry
+    registry=$(load_registry)
+    local changed=0
+    
+    for skill_dir in "$SKILLS_DIR"/*/; do
+        [ -d "$skill_dir" ] || continue
+        local name
+        name=$(basename "$skill_dir")
+        [ "$name" = ".git" ] && continue
+        
+        local manifest="$skill_dir/skill.json"
+        if [ -f "$manifest" ]; then
+            local exists
+            if echo "$registry" | jq -e ".skills[\"$name\"]" >/dev/null 2>&1; then
+                exists=1
+            else
+                exists=0
+            fi
+            if [ "$exists" = "0" ]; then
+                local info
+                info=$(jq -c '{name, version, description, author, commands}' "$manifest" 2>/dev/null)
+                if [ -n "$info" ]; then
+                    registry=$(echo "$registry" | jq --arg n "$name" --argjson i "$info" '.skills[$n] = $i')
+                    changed=1
+                fi
+            fi
+        fi
+    done
+    
+    [ "$changed" = "1" ] && save_registry "$registry"
+    echo "$registry"
+}
+
+# ─── Comandos ─────────────────────────────────────────────────────────
+CMD="${1:-list}"
+shift || true
+
+case "$CMD" in
+    list)
+        echo "=== 🔌 Skills instalados ==="
+        registry=$(discover_skills)
+        count=$(echo "$registry" | jq '.skills | length')
+        
+        if [ "$count" = "0" ]; then
+            echo "   No hay skills instalados."
+            echo "   Crea uno con: nexo-skill create <nombre>"
+        else
+            echo "$registry" | jq -r '
+                .skills | to_entries[] | 
+                "  📦 \(.key) v\(.value.version)\n     \(.value.description)\n     Comandos: \(.value.commands | keys | join(", "))"
+            '
+        fi
+        echo ""
+        echo "Total: $count skills"
+        ;;
+    
+    info)
+        name="${1:-}"
+        [ -z "$name" ] && echo "Uso: nexo-skill info <nombre>" && exit 1
+        
+        registry=$(discover_skills)
+        info=$(echo "$registry" | jq -re ".skills[\"$name\"]" 2>/dev/null) || {
+            echo "❌ Skill '$name' no encontrado"
+            exit 1
+        }
+        
+        echo "=== 📦 $name ==="
+        echo "$info" | jq -r '
+            "Version: \(.version)",
+            "Descripcion: \(.description)",
+            "Autor: \(.author)",
+            "",
+            "Comandos:",
+            (.commands | to_entries[] | "  🔹 \(.key): \(.value.description)")
+        '
+        ;;
+    
+    run)
+        skill_name="${1:-}"
+        cmd_name="${2:-}"
+        shift 2 || true
+        
+        [ -z "$skill_name" ] && echo "Uso: nexo-skill run <skill> <comando> [args...]" && exit 1
+        [ -z "$cmd_name" ] && echo "Uso: nexo-skill run <skill> <comando> [args...]" && exit 1
+        
+        manifest="$SKILLS_DIR/$skill_name/skill.json"
+        [ ! -f "$manifest" ] && echo "❌ Skill '$skill_name' no encontrado" && exit 1
+        
+        exec_def=$(jq -re --arg c "$cmd_name" '.commands[$c].exec // .commands[$c].script // empty' "$manifest" 2>/dev/null) || {
+            echo "❌ Comando '$cmd_name' no encontrado en skill '$skill_name'"
+            echo "   Comandos disponibles:"
+            jq -r '.commands | keys | join(", ")' "$manifest" 2>/dev/null
+            exit 1
+        }
+        
+        skill_dir="$SKILLS_DIR/$skill_name"
+        exec_def=$(echo "$exec_def" | sed "s|\$SKILL_DIR|$skill_dir|g; s|\$HOME|$HOME|g")
+        
+        # Ejecutar
+        if [[ "$exec_def" == ./scripts/* ]]; then
+            bash "$skill_dir/${exec_def#./}"
+        elif [[ "$exec_def" == python3\ * ]]; then
+            eval "$exec_def"
+        else
+            eval "$exec_def"
+        fi
+        ;;
+    
+    create)
+        name="${1:-}"
+        [ -z "$name" ] && echo "Uso: nexo-skill create <nombre>" && exit 1
+        
+        skill_dir="$SKILLS_DIR/$name"
+        [ -d "$skill_dir" ] && echo "❌ El skill '$name' ya existe" && exit 1
+        
+        mkdir -p "$skill_dir/scripts"
+        
+        # Crear manifest
+        cat > "$skill_dir/skill.json" << EOF
+{
+  "name": "$name",
+  "version": "1.0.0",
+  "description": "Descripcion del skill $name",
+  "author": "Nexo",
+  "commands": {
+    "hola": {
+      "description": "Comando de ejemplo",
+      "exec": "echo \"Hola desde el skill $name!\""
+    },
+    "fecha": {
+      "description": "Muestra la fecha y hora",
+      "exec": "echo \"Hoy es \$(date)\""
+    }
+  }
+}
+EOF
+        
+        # Crear script de ejemplo
+        cat > "$skill_dir/scripts/ejemplo.sh" << 'EOF'
+#!/bin/bash
+echo "Este es un script de ejemplo del skill."
+echo "Los scripts van en el directorio scripts/"
+echo "Args recibidos: $@"
+EOF
+        chmod +x "$skill_dir/scripts/ejemplo.sh"
+        
+        # Actualizar manifest con el script
+        jq '.commands.ejemplo = {"description": "Ejecuta script de ejemplo", "exec": "./scripts/ejemplo.sh"}' "$skill_dir/skill.json" > "${skill_dir}/skill.json.tmp" && mv "${skill_dir}/skill.json.tmp" "$skill_dir/skill.json"
+        
+        echo "✅ Skill '$name' creado en $skill_dir"
+        echo "   Editá skill.json para agregar comandos"
+        echo "   Probá: nexo-skill run $name hola"
+        ;;
+    
+    reload)
+        echo "♻️  Recargando skills..."
+        discover_skills > /dev/null
+        echo "✅ Skills recargados"
+        nexo-skill list
+        ;;
+    
+    *)
+        echo "╔══════════════════════════════════════╗"
+        echo "║    🔌 NEXO SKILL SYSTEM             ║"
+        echo "╠══════════════════════════════════════╣"
+        echo "║ Uso:                                ║"
+        echo "║  nexo-skill list         → Listar   ║"
+        echo "║  nexo-skill info <name>  → Info     ║"
+        echo "║  nexo-skill run <s> <c>  → Ejecutar ║"
+        echo "║  nexo-skill create <n>   → Crear    ║"
+        echo "║  nexo-skill reload       → Recargar ║"
+        echo "╚══════════════════════════════════════╝"
+        exit 1
+        ;;
+esac

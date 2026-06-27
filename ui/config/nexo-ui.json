@@ -1,0 +1,30 @@
+{
+  "_comment": "Configuración de Nexo UI",
+  "version": "2.0.0",
+  "web": {
+    "host": "127.0.0.1",
+    "port": 7070
+  },
+  "sync": {
+    "state_file": "/tmp/nexo-ui-state.json",
+    "update_interval": 2.0
+  },
+  "widget": {
+    "enabled": true,
+    "position": "top_right",
+    "width": 280,
+    "height": 200
+  },
+  "nexo": {
+    "api_base": "http://127.0.0.1:7070",
+    "state_endpoint": "/api/state",
+    "command_endpoint": "/api/command"
+  },
+  "display": {
+    "theme": "dark",
+    "accent_color": "#00d4ff",
+    "scanlines": true,
+    "glow": true,
+    "animations": true
+  }
+}

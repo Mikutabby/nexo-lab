@@ -1,5 +1,11 @@
 #!/bin/bash
 # Voice-to-text for OpenCode using Google Web Speech API
+
+# Activar venv si existe
+if [ -f "$HOME/.nexo-venv/bin/activate" ]; then
+  . "$HOME/.nexo-venv/bin/activate"
+fi
+
 # Usage: ./voice.sh [language] [duration]
 # Defaults: language=es-ES, duration=5
 
@@ -32,6 +38,11 @@ if [ ! -s "$OUTFILE" ]; then
     rec -q -r 16000 -c 1 -b 16 "$OUTFILE" trim 0 "$DUR" 2>/dev/null
 fi
 
+# Método 3: fallback arecord (ALSA directo)
+if [ ! -s "$OUTFILE" ]; then
+    arecord -q -r 16000 -c 1 -f S16_LE -d "$DUR" "$OUTFILE" 2>/dev/null
+fi
+
 # Verificar
 if [ ! -s "$OUTFILE" ]; then
     echo "ERROR: No hay audio"
@@ -40,36 +51,66 @@ fi
 
 echo "🔄 Transcribiendo..." >&2
 
-# VAD: detectar si hay voz antes de llamar a Google API
+# VAD: detectar si hay voz usando webrtcvad
 python3 -c "
-import sys, json
-sys.path.insert(0, '/home/miku/.local/bin/miku-eco')
-from vad_utils import has_speech
-
-has_voice, pct = has_speech('$OUTFILE', aggressiveness=3)
-# stdout: JSON para bash
-print(json.dumps({'has_voice': has_voice, 'pct': round(pct, 1)}))
+import sys, json, wave, struct
+try:
+    import webrtcvad
+    with wave.open('$OUTFILE', 'r') as wf:
+        framerate = wf.getframerate()
+        pcm = wf.readframes(wf.getnframes())
+    vad = webrtcvad.Vad(3)
+    frame_ms = 30
+    frame_bytes = int(framerate * frame_ms / 1000) * 2
+    speech = 0
+    total = 0
+    for i in range(0, len(pcm) - frame_bytes + 1, frame_bytes):
+        if vad.is_speech(pcm[i:i+frame_bytes], framerate):
+            speech += 1
+        total += 1
+    pct = (speech / total * 100) if total > 0 else 0
+    print(json.dumps({'has_voice': pct >= 15, 'pct': round(pct, 1)}))
+except Exception as e:
+    print(json.dumps({'has_voice': True, 'pct': 50, 'error': str(e)}))
 " > /tmp/vad_result.json 2>/dev/null
 
-# Verificar VAD
 VAD_HAS_VOICE=$(python3 -c "import json; d=json.load(open('/tmp/vad_result.json')); print('true' if d['has_voice'] else 'false')" 2>/dev/null)
 VAD_PCT=$(python3 -c "import json; d=json.load(open('/tmp/vad_result.json')); print(d['pct'])" 2>/dev/null)
-
 echo "📊 VAD: voz=$VAD_HAS_VOICE ($VAD_PCT% frames)" >&2
 
 if [ "$VAD_HAS_VOICE" != "true" ]; then
     echo "⏹️  Sin voz detectada, omitiendo API" >&2
     rm -f "$OUTFILE" /tmp/vad_result.json
-    exit 0  # Salida exitosa pero sin texto
+    exit 0
 fi
 
-# Recortar silencio antes de enviar a Google (mejora precisión)
+# Recortar silencio usando webrtcvad
 python3 -c "
-import sys
-sys.path.insert(0, '/home/miku/.local/bin/miku-eco')
-from vad_utils import trim_silence
-
-trim_silence('$OUTFILE', '/tmp/opencode_voice_trimmed.wav', aggressiveness=1)
+import sys, wave, struct, json
+try:
+    import webrtcvad
+    with wave.open('$OUTFILE', 'r') as wf:
+        params = wf.getparams()
+        framerate = wf.getframerate()
+        pcm = wf.readframes(wf.getnframes())
+    vad = webrtcvad.Vad(1)
+    frame_ms = 30
+    frame_bytes = int(framerate * frame_ms / 1000) * 2
+    # Encontrar inicio y fin de voz
+    voiced_frames = []
+    for i in range(0, len(pcm) - frame_bytes + 1, frame_bytes):
+        frame = pcm[i:i+frame_bytes]
+        if vad.is_speech(frame, framerate):
+            voiced_frames.append(frame)
+    if voiced_frames:
+        trimmed = b''.join(voiced_frames)
+        with wave.open('/tmp/opencode_voice_trimmed.wav', 'w') as wf:
+            wf.setparams(params)
+            wf.writeframes(trimmed)
+except Exception:
+    # Si falla, copiar original
+    import shutil
+    shutil.copy('$OUTFILE', '/tmp/opencode_voice_trimmed.wav')
 " 2>/dev/null
 
 if [ -s "/tmp/opencode_voice_trimmed.wav" ]; then

@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+"""
+Nexo Memory Enhancement Script
+Mejora el sistema de memoria de Nexo con conceptos de Hermes Agent
+"""
+
+import sqlite3
+import json
+from datetime import datetime, timedelta
+from pathlib import Path
+import hashlib
+
+class NexoMemoryEnhancer:
+    def __init__(self, db_path):
+        self.db_path = db_path
+        self.conn = sqlite3.connect(db_path)
+        self.create_tables()
+    
+    def create_tables(self):
+        """Crea tablas mejoradas para memoria"""
+        cursor = self.conn.cursor()
+        
+        # Tabla de resúmenes de conversaciones
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS conversation_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT,
+                summary TEXT,
+                key_points TEXT,  -- JSON array de puntos clave
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                embedding TEXT
+            )
+        ''')
+        
+        # Tabla de patrones aprendidos
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS learned_patterns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pattern_type TEXT,  -- 'user_preference', 'task_solution', 'error_resolution'
+                pattern_data TEXT,  -- JSON con detalles del patrón
+                confidence REAL DEFAULT 0.5,
+                usage_count INTEGER DEFAULT 0,
+                last_used TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Tabla de habilidades auto-creadas
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS auto_skills (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                skill_name TEXT UNIQUE,
+                description TEXT,
+                procedure TEXT,  -- JSON con pasos de la habilidad
+                success_rate REAL DEFAULT 1.0,
+                usage_count INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_used TIMESTAMP
+            )
+        ''')
+        
+        self.conn.commit()
+    
+    def add_conversation_summary(self, session_id, summary, key_points):
+        """Agrega un resumen de conversación"""
+        cursor = self.conn.cursor()
+        key_points_json = json.dumps(key_points)
+        
+        cursor.execute('''
+            INSERT INTO conversation_summaries (session_id, summary, key_points)
+            VALUES (?, ?, ?)
+        ''', (session_id, summary, key_points_json))
+        
+        self.conn.commit()
+        return cursor.lastrowid
+    
+    def add_learned_pattern(self, pattern_type, pattern_data, confidence=0.5):
+        """Agrega un patrón aprendido"""
+        cursor = self.conn.cursor()
+        pattern_json = json.dumps(pattern_data)
+        
+        cursor.execute('''
+            INSERT INTO learned_patterns (pattern_type, pattern_data, confidence)
+            VALUES (?, ?, ?)
+        ''', (pattern_type, pattern_json, confidence))
+        
+        self.conn.commit()
+        return cursor.lastrowid
+    
+    def add_auto_skill(self, skill_name, description, procedure):
+        """Agrega una habilidad auto-creada"""
+        cursor = self.conn.cursor()
+        procedure_json = json.dumps(procedure)
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO auto_skills (skill_name, description, procedure)
+            VALUES (?, ?, ?)
+        ''', (skill_name, description, procedure_json))
+        
+        self.conn.commit()
+        return cursor.lastrowid
+    
+    def search_similar_conversations(self, query, limit=5):
+        """Busca conversaciones similares (búsqueda básica por palabras clave)"""
+        cursor = self.conn.cursor()
+        
+        # Búsqueda simple por palabras clave (mejorable con embeddings)
+        cursor.execute('''
+            SELECT session_id, summary, key_points, created_at
+            FROM conversation_summaries
+            WHERE summary LIKE ? OR key_points LIKE ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        ''', (f'%{query}%', f'%{query}%', limit))
+        
+        return cursor.fetchall()
+    
+    def get_user_patterns(self, pattern_type=None):
+        """Obtiene patrones del usuario"""
+        cursor = self.conn.cursor()
+        
+        if pattern_type:
+            cursor.execute('''
+                SELECT pattern_type, pattern_data, confidence, usage_count
+                FROM learned_patterns
+                WHERE pattern_type = ?
+                ORDER BY confidence DESC, usage_count DESC
+            ''', (pattern_type,))
+        else:
+            cursor.execute('''
+                SELECT pattern_type, pattern_data, confidence, usage_count
+                FROM learned_patterns
+                ORDER BY confidence DESC, usage_count DESC
+            ''')
+        
+        return cursor.fetchall()
+    
+    def update_skill_usage(self, skill_name):
+        """Actualiza el uso de una habilidad"""
+        cursor = self.conn.cursor()
+        
+        cursor.execute('''
+            UPDATE auto_skills 
+            SET usage_count = usage_count + 1,
+                last_used = CURRENT_TIMESTAMP
+            WHERE skill_name = ?
+        ''', (skill_name,))
+        
+        self.conn.commit()
+    
+    def get_recommended_skills(self, task_description):
+        """Recomienda habilidades basadas en la tarea"""
+        cursor = self.conn.cursor()
+        
+        # Búsqueda simple por palabras clave en descripción
+        cursor.execute('''
+            SELECT skill_name, description, success_rate
+            FROM auto_skills
+            WHERE description LIKE ? OR procedure LIKE ?
+            ORDER BY success_rate DESC, usage_count DESC
+            LIMIT 3
+        ''', (f'%{task_description}%', f'%{task_description}%'))
+        
+        return cursor.fetchall()
+    
+    def close(self):
+        """Cierra la conexión a la base de datos"""
+        self.conn.close()
+
+def main():
+    """Función principal de demostración"""
+    # Usar la base de datos existente de Nexo
+    db_path = Path.home() / ".nexo-memory" / "graph.db"
+    
+    if not db_path.exists():
+        print("❌ No se encontró la base de datos de Nexo")
+        return
+    
+    enhancer = NexoMemoryEnhancer(str(db_path))
+    
+    print("✅ Sistema de memoria mejorado inicializado")
+    print(f"📊 Base de datos: {db_path}")
+    
+    # Ejemplo de uso
+    print("\n📝 Ejemplo: Agregar resumen de conversación")
+    session_id = "session_2026_06_27_001"
+    summary = "Discusión sobre mejora de razonamiento de IA"
+    key_points = [
+        "Investigación de Hermes Agent",
+        "Sistema de memoria persistente",
+        "Habilidades auto-creadas",
+        "Plan de integración"
+    ]
+    
+    summary_id = enhancer.add_conversation_summary(session_id, summary, key_points)
+    print(f"   Resumen agregado con ID: {summary_id}")
+    
+    print("\n🧠 Ejemplo: Agregar patrón aprendido")
+    pattern_data = {
+        "user_preference": "le_gusta_investigar_nuevas_tecnologias",
+        "context": "mejora_de_sistema",
+        "evidence": "Pidió investigar Hermes Agent para mejorar razonamiento"
+    }
+    
+    pattern_id = enhancer.add_learned_pattern("user_preference", pattern_data, 0.8)
+    print(f"   Patrón agregado con ID: {pattern_id}")
+    
+    print("\n🔧 Ejemplo: Agregar habilidad auto-creada")
+    skill_procedure = {
+        "steps": [
+            "Identificar tarea repetitiva",
+            "Documentar pasos exitosos",
+            "Crear script automatizado",
+            "Probar y refinar"
+        ],
+        "tools_used": ["terminal", "write_file", "read_file"],
+        "success_metrics": ["tiempo_ahorrado", "precision"]
+    }
+    
+    skill_id = enhancer.add_auto_skill(
+        "auto_automation",
+        "Crear automatizaciones para tareas repetitivas",
+        skill_procedure
+    )
+    print(f"   Habilidad agregada con ID: {skill_id}")
+    
+    # Búsqueda de conversaciones similares
+    print("\n🔍 Ejemplo: Buscar conversaciones similares")
+    similar = enhancer.search_similar_conversations("razonamiento")
+    print(f"   Encontradas {len(similar)} conversaciones similares")
+    
+    # Obtener patrones del usuario
+    print("\n👤 Ejemplo: Obtener patrones del usuario")
+    patterns = enhancer.get_user_patterns("user_preference")
+    print(f"   Encontrados {len(patterns)} patrones de preferencias")
+    
+    enhancer.close()
+    print("\n✅ Ejemplos completados exitosamente")
+
+if __name__ == "__main__":
+    main()

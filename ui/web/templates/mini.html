@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexo — Mini</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: rgba(0,0,0,0.85);
+    color: #00d4ff;
+    font-family: 'Courier New', monospace;
+    width: 320px;
+    height: 140px;
+    overflow: hidden;
+    border: 1px solid rgba(0,212,255,0.3);
+    border-radius: 8px;
+    user-select: none;
+    cursor: grab;
+  }
+  body:active { cursor: grabbing; }
+  .mini-container { padding: 10px 14px; }
+  .mini-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 6px;
+  }
+  .mini-title {
+    font-size: 11px; font-weight: bold; letter-spacing: 2px;
+    color: #00aaff;
+  }
+  .mini-status {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 10px;
+  }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #444;
+    transition: all 0.3s;
+  }
+  .status-dot.idle { background: #888; box-shadow: 0 0 4px #888; }
+  .status-dot.listening { background: #ffaa00; box-shadow: 0 0 8px #ffaa00; animation: pulse 1s infinite; }
+  .status-dot.thinking { background: #00aaff; box-shadow: 0 0 8px #00aaff; animation: pulse 0.6s infinite; }
+  .status-dot.speaking { background: #00ff88; box-shadow: 0 0 8px #00ff88; }
+  .status-dot.error { background: #ff4444; box-shadow: 0 0 8px #ff4444; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+  .mini-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-bottom: 4px; }
+  .mini-stat { font-size: 9px; color: #888; }
+  .mini-stat span { color: #00d4ff; }
+  .mini-bar { height: 3px; background: rgba(0,212,255,0.1); border-radius: 2px; margin-top: 1px; }
+  .mini-bar-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, #00d4ff, #00aaff); transition: width 0.5s; }
+  .mini-cmd {
+    font-size: 9px; color: #666; margin-top: 4px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .mini-cmd.active { color: #00ff88; }
+  .draghandle { position: absolute; top: 0; left: 0; right: 0; height: 10px; cursor: move; }
+</style>
+</head>
+<body>
+<div class="mini-container">
+  <div class="mini-header">
+    <div class="mini-title">NEXO</div>
+    <div class="mini-status">
+      <span id="mini-status-text">INACTIVO</span>
+      <div class="status-dot idle" id="mini-status-dot"></div>
+    </div>
+  </div>
+  <div class="mini-stats">
+    <div class="mini-stat">CPU <span id="mini-cpu">0%</span>
+      <div class="mini-bar"><div class="mini-bar-fill" id="mini-cpu-bar" style="width:0%"></div></div>
+    </div>
+    <div class="mini-stat">RAM <span id="mini-ram">0%</span>
+      <div class="mini-bar"><div class="mini-bar-fill" id="mini-ram-bar" style="width:0%"></div></div>
+    </div>
+    <div class="mini-stat">TEMP <span id="mini-temp">0°C</span>
+      <div class="mini-bar"><div class="mini-bar-fill" id="mini-temp-bar" style="width:0%"></div></div>
+    </div>
+  </div>
+  <div class="mini-cmd" id="mini-cmd">Esperando comandos...</div>
+</div>
+<script>
+  const WS_URL = 'ws://127.0.0.1:7071';
+  let ws = null;
+
+  function connectWS() {
+    ws = new WebSocket(WS_URL);
+    ws.onmessage = function(e) {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'state_update') updateUI(msg.data);
+      } catch(e) {}
+    };
+    ws.onclose = function() { setTimeout(connectWS, 2000); };
+    ws.onerror = function() { ws.close(); };
+  }
+
+  function updateUI(s) {
+    document.getElementById('mini-cpu').textContent = s.cpu + '%';
+    document.getElementById('mini-cpu-bar').style.width = Math.min(s.cpu, 100) + '%';
+    document.getElementById('mini-ram').textContent = s.ram + '%';
+    document.getElementById('mini-ram-bar').style.width = Math.min(s.ram, 100) + '%';
+    document.getElementById('mini-temp').textContent = s.temp + '°C';
+    document.getElementById('mini-temp-bar').style.width = Math.min(s.temp * 1.2, 100) + '%';
+
+    const status = s.nexo_status || 'idle';
+    const dot = document.getElementById('mini-status-dot');
+    const txt = document.getElementById('mini-status-text');
+    const statusMap = {
+      idle: ['INACTIVO', 'idle'],
+      listening: ['ESCUCHANDO', 'listening'],
+      thinking: ['PENSANDO', 'thinking'],
+      speaking: ['HABLANDO', 'speaking'],
+      error: ['ERROR', 'error']
+    };
+    const [label, cls] = statusMap[status] || ['—', 'idle'];
+    txt.textContent = label;
+    dot.className = 'status-dot ' + cls;
+
+    if (s.last_command) {
+      const cmd = document.getElementById('mini-cmd');
+      cmd.textContent = '> ' + s.last_command;
+      cmd.className = 'mini-cmd active';
+    }
+  }
+
+  // Polling backup si WebSocket no conecta
+  setInterval(function() {
+    fetch('/api/state').then(r => r.json()).then(s => updateUI(s)).catch(() => {});
+  }, 2000);
+
+  connectWS();
+</script>
+</body>
+</html>

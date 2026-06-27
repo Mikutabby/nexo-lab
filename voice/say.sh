@@ -1,5 +1,11 @@
 #!/bin/bash
 # ============================================================================
+
+# Activar venv si existe
+if [ -f "$HOME/.nexo-venv/bin/activate" ]; then
+  . "$HOME/.nexo-venv/bin/activate"
+fi
+
 # Nexo TTS v2 — Text-to-Speech con Piper + preprocessing de texto
 # Inspirado en Jarvis (isair/jarvis) TTS system
 # ============================================================================

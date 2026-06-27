@@ -1,0 +1,62 @@
+#!/bin/bash
+# Nexo Memory Enhancement - Organización + Búsqueda Semántica
+# Este script ejecuta ambas mejoras de memoria
+
+echo "🧠 Nexo Memory Enhancement"
+echo "=========================="
+
+# Verificar que exista la base de datos
+if [ ! -f ~/.nexo-memory/graph.db ]; then
+    echo "❌ No se encontró la base de datos de Nexo"
+    exit 1
+fi
+
+echo ""
+echo "📋 Mejoras disponibles:"
+echo "  1. Organización inteligente de hechos"
+echo "  2. Búsqueda semántica mejorada"
+echo "  3. Ambas (recomendado)"
+echo ""
+read -p "Selecciona una opción (1-3): " option
+
+case $option in
+    1)
+        echo ""
+        echo "🔄 Ejecutando organización inteligente..."
+        ~/.local/bin/nexo-memory-organize
+        ;;
+    2)
+        echo ""
+        echo "🔍 Ejecutando búsqueda semántica mejorada..."
+        ~/.local/bin/nexo-semantic-enhance
+        ;;
+    3)
+        echo ""
+        echo "🔄 Ejecutando organización inteligente..."
+        ~/.local/bin/nexo-memory-organize
+        echo ""
+        echo "🔍 Ejecutando búsqueda semántica mejorada..."
+        ~/.local/bin/nexo-semantic-enhance
+        ;;
+    *)
+        echo "❌ Opción no válida"
+        exit 1
+        ;;
+esac
+
+echo ""
+echo "✅ Mejora de memoria completada"
+echo ""
+echo "📊 Resumen de mejoras:"
+echo "  • Organización: Hechos categorizados automáticamente"
+echo "  • Búsqueda semántica: Embeddings generados para todos los nodos"
+echo "  • Scripts creados:"
+echo "    - nexo-memory-organize: Organiza hechos en categorías"
+echo "    - nexo-semantic-enhance: Genera embeddings y mejora búsqueda"
+echo "    - nexo-memory-enhance: Herramientas adicionales de memoria"
+echo ""
+echo "🔧 Para usar la búsqueda semántica:"
+echo "  nexo-graph semsearch 'tu consulta'"
+echo ""
+echo "📁 Para ver hechos organizados:"
+echo "  sqlite3 ~/.nexo-memory/graph.db 'SELECT * FROM organized_facts;'"

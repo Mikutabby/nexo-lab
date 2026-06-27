@@ -1,6 +1,5 @@
 # Datos locales (no subir al repo)
 *.db
-*.json
 *.pkl
 *.yml
 __pycache__/
@@ -13,3 +12,15 @@ log/
 
 # Archivos de configuración local (contienen datos personales)
 agent/style-local.md
+
+# Archivos sensibles (nunca subir)
+*.gpg
+*.key
+*.pem
+*.p12
+.env
+.env.*
+*.secret
+*password*
+*token*
+*key*

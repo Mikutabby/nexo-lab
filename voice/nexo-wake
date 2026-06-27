@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+
+import sys, os
+venv = os.path.expanduser("~/.nexo-venv")
+if os.path.exists(venv):
+    sys.path.insert(0, venv + "/lib/python3.14/site-packages")
+
 """
 🔊 Nexo Wake Word Detection v2
 Escucha el micrófono, detecta la palabra "nexo" y captura comandos por voz.

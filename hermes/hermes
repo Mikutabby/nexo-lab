@@ -1,0 +1,16 @@
+#!/bin/bash
+# hermes - Wrapper para Hermes Agent
+# Uso: hermes [comando] [args...]
+
+HERMES_HOME="$HOME/.hermes/hermes-agent"
+VENV="$HERMES_HOME/.venv"
+
+if [ ! -f "$VENV/bin/activate" ]; then
+    echo "❌ Virtual environment no encontrado en $VENV"
+    echo "   Ejecutá: python3.11 -m venv $VENV"
+    exit 1
+fi
+
+source "$VENV/bin/activate"
+cd "$HERMES_HOME"
+exec python -m hermes_cli.main "$@"
