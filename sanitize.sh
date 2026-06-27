@@ -15,7 +15,7 @@ HOOK_TARGET="$REPO_DIR/.git/hooks/pre-commit"
 # ─── Patrones de datos sensibles ────────────────────────────────────────────
 
 # Contraseñas en texto plano: "password: 1234", "contraseña: xyz", "pass: xyz"
-# También detecta "Password sudo de miku: 0207" (palabra + hasta 30 chars + valor)
+# Detecta "Password sudo: XXXX" (palabra + hasta 30 chars + valor)
 PASSWORD_PATTERN='(password|contraseña|passwd|pass).{0,30}[:=][ \t]*[0-9a-zA-Z_\-\.]{4,}'
 
 # IPs privadas

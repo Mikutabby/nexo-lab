@@ -219,7 +219,7 @@ Puedo escribir scripts en:
 - Cancelar: el usuario escribe **"no"** en el chat y yo ejecuto `temp-cancel.sh`
 - Script de cancelación: `/home/miku/.local/bin/temp-cancel.sh`
 - Sudoers: `/etc/sudoers.d/temp-monitor` (passwordless para rtcwake y systemctl poweroff)
-- Contraseña sudo de miku: **0207**
+- Contraseña sudo de miku: ver `~/.local/bin/check-identity.sh` o preguntar al usuario
 
 ### Text-to-Speech (TTS)
 - Script: `~/.opencode/say.sh`
@@ -472,7 +472,7 @@ Resumidor diario de interacciones usando Ollama + knowledge graph.
 
 ## Datos del usuario
 - Nombre de usuario: **miku**
-- Password sudo: **0207** (⚠️ solo usar cuando sea necesario y con permiso explícito)
+- Password sudo: [REDACTED] — preguntar al usuario cuando sea necesario
 - Home: `/home/miku`
 - PC: Linux con capacidad de reconocimiento facial, TTS, monitoreo de temperatura
 
