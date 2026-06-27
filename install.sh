@@ -39,7 +39,7 @@ BIN_DIR="$HOME/.local/bin"
 OPENCODE_DIR="$HOME/.opencode"
 AGENT_DIR="$OPENCODE_DIR/agents"
 MEMORY_DIR="$HOME/.nexo-memory"
-# Soporta sudo sin contraseña o SUDO_PASS=clave ./install.sh
+# Requiere sudo sin contraseña — configurá: $USER ALL=(ALL) NOPASSWD: ALL
 
 # ── Mostrar ayuda ──────────────────────────────────────────────────────────
 show_help() {
@@ -96,38 +96,21 @@ list_components() {
     echo ""
 }
 
-# ── Verificar sudo ─────────────────────────────────────────────────────────
-# Soporta: 1) sudo sin contraseña, 2) SUDO_PASS=clave ./install.sh
+# ── Verificar sudo sin contraseña ──────────────────────────────────────────
 ask_sudo() {
     if sudo -n true 2>/dev/null; then
         ok "Acceso sudo sin contraseña verificado"
-        return 0
+    else
+        err "Se necesita acceso sudo sin contraseña."
+        err "Ejecutá 'sudo visudo' y agregá esta línea:"
+        err "  $USER ALL=(ALL) NOPASSWD: ALL"
+        exit 1
     fi
-    # Si se pasó SUDO_PASS como variable de entorno, verificar que funcione
-    if [[ -n "${SUDO_PASS:-}" ]]; then
-        if echo "$SUDO_PASS" | sudo -S true 2>/dev/null; then
-            ok "Acceso sudo con SUDO_PASS verificado"
-            return 0
-        else
-            err "SUDO_PASS configurado pero no funciona. Verificá la contraseña."
-        fi
-    fi
-    err "Se necesita acceso sudo."
-    err "Opción 1: Configurar sin contraseña:"
-    err "  sudo visudo  → agregar: $USER ALL=(ALL) NOPASSWD: ALL"
-    err ""
-    err "Opción 2: Pasar la contraseña:"
-    err "  SUDO_PASS=tuclave ./install.sh"
-    exit 1
 }
 
-# Wrapper para ejecutar comandos sudo con SUDO_PASS si está disponible
+# Wrapper para ejecutar comandos sudo
 run_sudo() {
-    if [[ -n "${SUDO_PASS:-}" ]]; then
-        echo "$SUDO_PASS" | sudo -S "$@" 2>/dev/null
-    else
-        sudo "$@"
-    fi
+    sudo "$@"
 }
 
 # ── Verificar archivos fuente ──────────────────────────────────────────────
