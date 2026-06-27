@@ -43,6 +43,27 @@ Creado originalmente para un Intel Celeron 847 con 4 GB de RAM — está optimiz
 - **nexo-evaluate** — Evaluator. Verifica completitud de tareas usando IA local.
 - **nexo-wake** — Wake Word Detection. Escucha la palabra "Nexo" y activa comandos por voz. Soporta fuzzy match con difflib.
 
+### 🧠 Memoria Avanzada (`memory/`)
+- **nexo-memory-organize** — Organiza hechos en 11 categorías automáticamente.
+- **nexo-semantic-enhance** — Genera embeddings TF-IDF y búsqueda semántica ligera.
+- **nexo-skill-creator** — Crea skills automáticamente desde trayectorias de tareas.
+- **nexo-memory-enhance** — Agrega tablas de mejora (conversation_summaries, learned_patterns, auto_skills).
+
+### 🤖 Hermes Integration (`hermes/`)
+- **hermes** — Wrapper para Hermes Agent con OpenRouter.
+- **nexo-hermes-integration** — Script de demostración de integración.
+
+### 🔌 Skills System (`skills/`)
+- **nexo-skill** — Gestor de skills (listar, info, ejecutar, crear).
+- **nexo-skill-creator** — Crea skills automáticamente desde tareas.
+
+### 🧠 Brain (`brain/`)
+- **nexo-brain.py** — Brain daemon con IA para razonamiento avanzado.
+- **nexo-daemon.sh** — Daemon del brain para procesamiento en background.
+
+### 🎵 Audio (`system/`)
+- **nexo-audio-diagnostico.sh** — Diagnósticos completos de audio del sistema.
+
 ### ⚙️ Sistema (`system/`)
 - **check-identity.sh** / **face-recognize.py** — Reconocimiento facial para verificar quién está usando la PC.
 - **temp-monitor.sh** / **temp-cancel.sh** — Monitoreo de temperatura con apagado automático si supera 80°C.
@@ -137,13 +158,18 @@ Nexo **sabe instalar cada componente por separado**. Solo decile qué querés:
 | Decile a Nexo... | Y él instala... |
 |---|---|
 | "instalame las **dependencias**" | Paquetes base del sistema |
-| "quiero **voz**" | TTS + STT |
+| "quiero **voz**" | TTS + STT + Wake Word |
 | "poneme la **memoria**" | Knowledge Graph + memoria persistente |
-| "instalame las **herramientas**" | Tool Registry, Diary, Evaluator, Wake Word |
+| "instalame las **herramientas**" | Tool Registry, Diary, Evaluator |
 | "copiame los **scripts**" | Scripts del sistema (face, temp, limpiar) |
 | "cargame el **agente**" | Archivo asistente.md |
 | "configurame el **sistema**" | Systemd + sudoers + crontab |
 | "instalame **ollama**" | IA local |
+| "poneme la **memoria avanzada**" | organize, semantic-enhance, skill-creator |
+| "conectame **hermes**" | Hermes Agent + OpenRouter |
+| "instalame los **skills**" | Sistema de plugins |
+| "activame el **brain**" | Brain daemon + IA |
+| "revisame el **audio**" | Diagnósticos de audio |
 | "haceme el **completo**" | Todo el ecosistema |
 | "**respaldame**" | Backup completo |
 
@@ -152,7 +178,7 @@ Cada componente se instala con un solo comando:
 ./install.sh -c <componente>
 ```
 
-> 💡 El instalador soporta instalación **modular**: `-c voz`, `-c graph`, `-c tools`, etc.
+> 💡 El instalador soporta instalación **modular**: `-c voz`, `-c graph`, `-c tools`, `-c memory`, `-c hermes`, `-c skills`, `-c brain`, `-c audio`, etc.
 > Usá `./install.sh --list` para ver todos los componentes disponibles.
 
 ---
@@ -204,7 +230,7 @@ El instalador ahora soporta **instalación por componentes individuales** con la
 | Problema | Causa | Solución |
 |----------|-------|----------|
 | `git clone` pide usuario/contraseña | Querés pushear o tenés un credential helper configurado | Usá la Opción 2 (ZIP) o configurá SSH |
-| `sudo: contraseña incorrecta` | No tenés sudo sin contraseña configurado | Configurá NOPASSWD en sudoers o ejecutá `SUDO_PASS=tuclave ./install.sh` |
+| `sudo: contraseña incorrecta` | No tenés sudo sin contraseña configurado | Ejecutá `bash ~/nexo-lab/setup-sudo.sh` para configurarlo |
 | Ollama no se instala | No tenés curl o el script falló | Instalalo manual: `curl -fsSL https://ollama.com/install.sh \| sh` |
 | El TTS no suena | PulseAudio no está corriendo | Revisá `pulseaudio --start` o tu configuración de audio |
 | `face-recognize.py` no funciona | Falta OpenCV | `pip install --user opencv-python face_recognition` |
