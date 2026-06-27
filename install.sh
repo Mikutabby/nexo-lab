@@ -97,14 +97,15 @@ list_components() {
 }
 
 # ── Verificar sudo sin contraseña ──────────────────────────────────────────
-ask_sudo() {
+HAS_SUDO=0
+check_sudo() {
     if sudo -n true 2>/dev/null; then
-        ok "Acceso sudo sin contraseña verificado"
+        HAS_SUDO=1
+        ok "Acceso sudo verificado"
     else
-        err "Se necesita acceso sudo sin contraseña."
-        err "Ejecutá 'sudo visudo' y agregá esta línea:"
-        err "  $USER ALL=(ALL) NOPASSWD: ALL"
-        exit 1
+        HAS_SUDO=0
+        warn "Sin sudo sin contraseña — se saltarán componentes que lo necesiten"
+        warn "Para configurarlo: sudo bash -c 'echo \"miku ALL=(ALL) NOPASSWD: ALL\" > /etc/sudoers.d/miku-nopasswd && chmod 440 /etc/sudoers.d/miku-nopasswd'"
     fi
 }
 
@@ -163,10 +164,13 @@ detect_pkg_manager() {
 # ── 1. Dependencias del sistema ────────────────────────────────────────────
 install_deps() {
     header "DEPENDENCIAS DEL SISTEMA"
-    ask_sudo
+    check_sudo
     detect_pkg_manager
 
-    if [[ "$PKG_MANAGER" == "apt" ]]; then
+    if [[ $HAS_SUDO -eq 0 ]]; then
+        warn "Saltando instalación de paquetes del sistema (necesita sudo)"
+        warn "Instalá manualmente: espeak-ng, python3, jq, sqlite3, curl"
+    elif [[ "$PKG_MANAGER" == "apt" ]]; then
         run_sudo apt update -qq 2>/dev/null
         run_sudo $INSTALL_CMD espeak-ng mpg123 python3 python3-pip jq sqlite3 curl 2>/dev/null
         ok "Dependencias de sistema instaladas (apt)"
@@ -320,11 +324,17 @@ install_agent() {
 # ── 7. Configuración (systemd + sudoers + crontab) ────────────────────────
 install_config() {
     header "CONFIGURACIÓN DEL SISTEMA"
-    ask_sudo
+    check_sudo
     verify_files \
         "$SCRIPT_DIR/config/cpu-performance.service" \
         "$SCRIPT_DIR/config/sudoers.temp-monitor" \
         "$SCRIPT_DIR/config/miku-crontab.txt"
+
+    if [[ $HAS_SUDO -eq 0 ]]; then
+        warn "Sin sudo — no se pueden configurar servicios systemd, sudoers ni crontab"
+        warn "Ejecutá después: bash setup-sudo.sh && ./install.sh -c config"
+        return 0
+    fi
 
     # CPU Performance
     run_sudo cp "$SCRIPT_DIR/config/cpu-performance.service" /etc/systemd/system/ 2>/dev/null
