@@ -1,0 +1,141 @@
+#!/bin/bash
+# 🚀 Nexo Updater
+# Actualiza Nexo Asistente desde el repositorio oficial.
+#
+# Uso:
+#   nexo-update                     → Actualizar todo
+#   nexo-update --check             → Verificar si hay actualización
+#   nexo-update --force             → Reinstalar todo desde cero
+#   nexo-update --version           → Mostrar versión
+#   nexo-update --help              → Mostrar ayuda
+
+set -euo pipefail
+
+NEXO_VERSION="2.0"
+REPO_URL="https://github.com/Mikutabby/nexo-lab"
+INSTALL_DIR="$HOME/.local/bin"
+OPENCODE_DIR="$HOME/.opencode"
+TMP_DIR="/tmp/nexo-update-$$"
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
+ok()   { echo -e "${GREEN}[OK]${NC} $1"; }
+info() { echo -e "${BLUE}[i]${NC} $1"; }
+warn() { echo -e "${YELLOW}[!]${NC} $1"; }
+err()  { echo -e "${RED}[ERROR]${NC} $1"; }
+
+show_help() {
+  head -14 "$0" | grep -E "^# " | sed 's/^# //'
+  exit 0
+}
+
+case "${1:-}" in
+  --help|-h) show_help ;;
+  --version|-v) echo "Nexo Updater v${NEXO_VERSION}"; exit 0 ;;
+esac
+
+# ─── Verificar dependencias ──────────────────────────────────────────────
+for cmd in git curl cp chmod; do
+  if ! command -v "$cmd" &>/dev/null; then
+    err "Dependencia faltante: $cmd"
+    exit 1
+  fi
+done
+
+# ─── Check de versión remota ─────────────────────────────────────────────
+check_update() {
+  info "Verificando actualizaciones..."
+  local remote_ver
+  remote_ver=$(curl -sSL "${REPO_URL}/raw/master/tools/nexo-update" 2>/dev/null | \
+    grep "NEXO_VERSION=" | head -1 | cut -d'"' -f2 || echo "")
+  if [ -z "$remote_ver" ]; then
+    warn "No se pudo verificar versión remota"
+    return 1
+  fi
+  if [ "$remote_ver" != "$NEXO_VERSION" ]; then
+    echo "  Local:  v${NEXO_VERSION}"
+    echo "  Remote: v${remote_ver}"
+    ok "Actualización disponible"
+    return 0
+  fi
+  ok "Ya tenés la última versión (v${NEXO_VERSION})"
+  return 1
+}
+
+if [ "${1:-}" = "--check" ]; then
+  check_update
+  exit $?
+fi
+
+# ─── Clonar repo temporal ────────────────────────────────────────────────
+info "Descargando última versión..."
+rm -rf "$TMP_DIR"
+if ! git clone --depth 1 "$REPO_URL" "$TMP_DIR" 2>/dev/null; then
+  err "No se pudo clonar el repositorio"
+  err "Verificá: $REPO_URL"
+  exit 1
+fi
+
+# ─── Forzar reinstalación completa ────────────────────────────────────────
+if [ "${1:-}" = "--force" ]; then
+  info "Reinstalación forzada..."
+  bash "$TMP_DIR/install.sh"
+  ok "Reinstalación completa"
+  rm -rf "$TMP_DIR"
+  exit 0
+fi
+
+# ─── Actualizar componentes ──────────────────────────────────────────────
+UPDATED=0
+
+update_file() {
+  local src="$1" dst="$2"
+  if [ ! -f "$src" ]; then
+    return
+  fi
+  mkdir -p "$(dirname "$dst")"
+  cp "$src" "$dst" && chmod +x "$dst"
+  UPDATED=$((UPDATED + 1))
+}
+
+info "Actualizando scripts del sistema..."
+mkdir -p "$INSTALL_DIR" "$OPENCODE_DIR"
+
+# Tools
+for f in nexo-diary nexo-evaluate nexo-tools nexo-skill nexo-wake nexo-update \
+         nexo-auto-model nexo-model nexo-model-switch nexo-smart-switch; do
+  update_file "$TMP_DIR/tools/$f" "$INSTALL_DIR/$f"
+done
+
+# Memory
+update_file "$TMP_DIR/graph/nexo-graph" "$INSTALL_DIR/nexo-graph"
+update_file "$TMP_DIR/graph/nexo-memory" "$INSTALL_DIR/nexo-memory"
+
+# Backup
+update_file "$TMP_DIR/backup/nexo-backup.sh" "$INSTALL_DIR/nexo-backup.sh"
+update_file "$TMP_DIR/backup/nexo-restore.sh" "$INSTALL_DIR/nexo-restore.sh"
+
+# System
+update_file "$TMP_DIR/system/limpiar" "$INSTALL_DIR/limpiar"
+update_file "$TMP_DIR/system/check-identity.sh" "$INSTALL_DIR/check-identity.sh"
+update_file "$TMP_DIR/system/temp-monitor.sh" "$INSTALL_DIR/temp-monitor.sh"
+update_file "$TMP_DIR/system/temp-cancel.sh" "$INSTALL_DIR/temp-cancel.sh"
+
+# Voice
+update_file "$TMP_DIR/voice/say.sh" "$OPENCODE_DIR/say.sh"
+update_file "$TMP_DIR/voice/voice.sh" "$OPENCODE_DIR/voice.sh"
+
+# Skills
+if [ -d "$TMP_DIR/skills" ]; then
+  mkdir -p "$HOME/.nexo-skills"
+  cp -r "$TMP_DIR/skills"/* "$HOME/.nexo-skills/" 2>/dev/null || true
+fi
+
+rm -rf "$TMP_DIR"
+
+# ─── Resumen ─────────────────────────────────────────────────────────────
+if [ "$UPDATED" -gt 0 ]; then
+  echo "2.0" > "$HOME/.nexo-version"
+  ok "Actualización completada: $UPDATED archivos actualizados"
+else
+  warn "No se actualizó ningún archivo"
+fi

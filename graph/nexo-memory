@@ -9,6 +9,29 @@ GRAPH_DB="$MEMORY_DIR/graph.db"
 GRAPH_GPG="$MEMORY_DIR/graph.db.gpg"
 LOG_DIR="$MEMORY_DIR/log"
 LEARN_DIR="$MEMORY_DIR/learned"
+LOCK_FILE="$MEMORY_DIR/.memory.lock"
+
+# ── File locking para escrituras concurrentes ──────────────────────────────
+acquire_lock() {
+  local timeout="${1:-5}"
+  local lock_fd
+  exec {lock_fd}>"$LOCK_FILE" 2>/dev/null || {
+    echo "❌ No se pudo abrir lock file" >&2
+    return 1
+  }
+  if ! flock -w "$timeout" "$lock_fd" 2>/dev/null; then
+    echo "❌ No se pudo adquirir lock (timeout ${timeout}s)" >&2
+    return 1
+  fi
+  echo "$lock_fd"
+}
+
+release_lock() {
+  local lock_fd="$1"
+  flock -u "$lock_fd" 2>/dev/null || true
+  exec {lock_fd}>&- 2>/dev/null || true
+}
+# ───────────────────────────────────────────────────────────────────────────
 
 ensure_dirs() {
   mkdir -p "$MEMORY_DIR" "$LOG_DIR" "$LEARN_DIR"
@@ -17,6 +40,29 @@ ensure_dirs() {
     echo '{"version":1,"last_updated":"","nexo":{"name":"Nexo","creator":""},"user":{"name":"","preferences":{},"facts":[]},"network":{"devices":{}},"learned_patterns":{"user_habits":[],"common_tasks":[],"errors_fixes":[],"improvements":[]},"pending_actions":[]}' > "$MEMORY_FILE"
   fi
 }
+
+# ── Escribir memory.json con lock (evita corrupcion por escritura concurrente)
+# Uso: update_memory <filter> [--arg key value ...]
+update_memory() {
+  local filter="" lock_fd jq_args=()
+  local args=("$@")
+  local last_idx=$((${#args[@]} - 1))
+  filter="${args[$last_idx]}"
+  for ((i=0; i<last_idx; i++)); do
+    jq_args+=("${args[$i]}")
+  done
+  ensure_dirs
+  lock_fd=$(acquire_lock 5) || exit 1
+  jq "${jq_args[@]}" "$filter" "$MEMORY_FILE" > "${MEMORY_FILE}.tmp" 2>/dev/null && \
+    mv "${MEMORY_FILE}.tmp" "$MEMORY_FILE" || {
+      rm -f "${MEMORY_FILE}.tmp" 2>/dev/null
+      release_lock "$lock_fd"
+      echo "❌ Error al escribir memory.json" >&2
+      return 1
+    }
+  release_lock "$lock_fd"
+}
+# ───────────────────────────────────────────────────────────────────────────
 
 # ── Cifrar/descifrar con GPG ──────────────────────────────────────────────
 lock_memory() {
@@ -185,28 +231,27 @@ case "${1:-load}" in
     
     case "$TYPE" in
       fact)
-        jq --arg v "$VALUE" '.user.facts += [$v]' "$MEMORY_FILE" > "${MEMORY_FILE}.tmp" && mv "${MEMORY_FILE}.tmp" "$MEMORY_FILE"
-        # También agregar al knowledge graph
+        update_memory --arg v "$VALUE" --arg d "$(date -Iseconds)" '(.user.facts += [$v]) | (.last_updated = $d)'
         if command -v nexo-graph &>/dev/null; then
-          FACT_NUM=$(jq '.user.facts | length' "$MEMORY_FILE")
+          FACT_NUM=$(jq '.user.facts | length' "$MEMORY_FILE" 2>/dev/null || echo 0)
           nexo-graph add user "Fact $FACT_NUM" "$VALUE" 2>/dev/null
         fi
         echo "✅ Hecho aprendido: $VALUE"
         ;;
       habit)
-        jq --arg v "$VALUE" '.learned_patterns.user_habits += [$v]' "$MEMORY_FILE" > "${MEMORY_FILE}.tmp" && mv "${MEMORY_FILE}.tmp" "$MEMORY_FILE"
+        update_memory --arg v "$VALUE" --arg d "$(date -Iseconds)" '(.learned_patterns.user_habits += [$v]) | (.last_updated = $d)'
         echo "✅ Hábito registrado: $VALUE"
         ;;
       task)
-        jq --arg v "$VALUE" '.learned_patterns.common_tasks += [$v]' "$MEMORY_FILE" > "${MEMORY_FILE}.tmp" && mv "${MEMORY_FILE}.tmp" "$MEMORY_FILE"
+        update_memory --arg v "$VALUE" --arg d "$(date -Iseconds)" '(.learned_patterns.common_tasks += [$v]) | (.last_updated = $d)'
         echo "✅ Tarea aprendida: $VALUE"
         ;;
       error)
-        jq --arg v "$VALUE" '.learned_patterns.errors_fixes += [$v]' "$MEMORY_FILE" > "${MEMORY_FILE}.tmp" && mv "${MEMORY_FILE}.tmp" "$MEMORY_FILE"
+        update_memory --arg v "$VALUE" --arg d "$(date -Iseconds)" '(.learned_patterns.errors_fixes += [$v]) | (.last_updated = $d)'
         echo "✅ Error registrado: $VALUE"
         ;;
       improvement)
-        jq --arg v "$VALUE" '.learned_patterns.improvements += [$v]' "$MEMORY_FILE" > "${MEMORY_FILE}.tmp" && mv "${MEMORY_FILE}.tmp" "$MEMORY_FILE"
+        update_memory --arg v "$VALUE" --arg d "$(date -Iseconds)" '(.learned_patterns.improvements += [$v]) | (.last_updated = $d)'
         if command -v nexo-graph &>/dev/null; then
           nexo-graph add world "Mejora" "$VALUE" 2>/dev/null
         fi
@@ -214,9 +259,9 @@ case "${1:-load}" in
         ;;
       pending)
         DESC="${3:-}"
-        [[ -z "$DESC" ]] && echo "❌ Falta descripción" && exit 1
+        [[ -z "$DESC" ]] && echo "❌ Falta descripción (pendiente)" && exit 1
         TASK="${4:-general}"
-        jq --arg t "$TASK" --arg d "$DESC" '.pending_actions += [{"task": $t, "description": $d, "added": (now | strftime("%Y-%m-%d")), "status": "pending"}]' "$MEMORY_FILE" > "${MEMORY_FILE}.tmp" && mv "${MEMORY_FILE}.tmp" "$MEMORY_FILE"
+        update_memory --arg t "$TASK" --arg d "$DESC" --arg da "$(date -Iseconds)" '(.pending_actions += [{"task": $t, "description": $d, "added": $da, "status": "pending"}]) | (.last_updated = $da)'
         if command -v nexo-graph &>/dev/null; then
           nexo-graph add world "Pendiente: ${DESC:0:40}" "$DESC" 2>/dev/null
         fi
@@ -227,9 +272,6 @@ case "${1:-load}" in
         exit 1
         ;;
     esac
-    
-    # Actualizar timestamp
-    jq --arg d "$(date -Iseconds)" '.last_updated = $d' "$MEMORY_FILE" > "${MEMORY_FILE}.tmp" && mv "${MEMORY_FILE}.tmp" "$MEMORY_FILE"
     ;;
     
   log)
