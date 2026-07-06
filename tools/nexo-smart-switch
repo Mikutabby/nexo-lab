@@ -1,0 +1,37 @@
+#!/bin/bash
+# nexo-smart-switch — The actual switcher (called by Nexo)
+# Usage: nexo-smart-switch "user message"
+# Returns: nothing if no switch needed, or switches and returns confirmation
+
+RESULT=$(~/.local/bin/nexo-auto-model "$1" 2>/dev/null)
+
+NEEDS_SWITCH=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('needs_switch', False))" 2>/dev/null)
+
+if [ "$NEEDS_SWITCH" = "True" ]; then
+  SUGGESTED=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('suggested_model', ''))" 2>/dev/null)
+  FRIENDLY=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('friendly_name', ''))" 2>/dev/null)
+  INTENT=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('intent', ''))" 2>/dev/null)
+  CURRENT=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('current_model', ''))" 2>/dev/null)
+  
+  # Save last model
+  echo "$CURRENT" > /tmp/nexo-last-model
+  
+  # Apply switch (try jsonc first, fallback to json)
+  CONFIG="${OPENCODE_CONFIG:-$HOME/.opencode/opencode.jsonc}"
+  [ ! -f "$CONFIG" ] && CONFIG="$HOME/.opencode/opencode.json"
+  python3 -c "
+import json
+with open('$CONFIG', 'r') as f:
+    cfg = json.load(f)
+cfg['model'] = '$SUGGESTED'
+with open('$CONFIG', 'w') as f:
+    json.dump(cfg, f, indent=2)
+"
+  
+  # Log
+  mkdir -p "$HOME/.nexo-memory/log"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') | AUTO: $CURRENT → $SUGGESTED ($INTENT)" >> "$HOME/.nexo-memory/log/model-switches.log"
+  
+  # Output for Nexo to tell user
+  echo "🔄 Modelo: $FRIENDLY"
+fi

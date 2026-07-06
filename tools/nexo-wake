@@ -1,17 +1,26 @@
 #!/bin/bash
-# 🔊 Nexo Wake Word Detection
-# Escucha continuamente y detecta la palabra "nexo" para activación por voz.
+# 🔊 Nexo Wake Word Detection — v2 (disk-safe)
+# Escucha "nexo" sin escribir WAV a disco en cada ciclo.
 #
 # Uso:
-#   nexo-wake                    → Modo loop infinito (escucha "nexo" y ejecuta comandos)
-#   nexo-wake once               → Escucha una vez y dice si detectó "nexo"
-#   nexo-wake daemon start|stop  → Modo daemon (inicia/detiene servicio)
+#   nexo-wake                    → Modo loop (escucha "nexo" cada ~3s, SIN escribir a disco)
+#   nexo-wake once               → Escucha una vez
+#   nexo-wake daemon start|stop  → Modo daemon
 #   nexo-wake sensitivity <0-1>  → Ajustar sensibilidad (defecto: 0.6)
 
 PIDFILE="/tmp/nexo-wake.pid"
 LOGFILE="/tmp/nexo-wake.log"
 SENSITIVITY=0.6
 DURATION=2
+
+# ── Usar tmpfs si existe, sino /tmp (pero minimizando escrituras) ──
+if [ -d /dev/shm ] && [ -w /dev/shm ]; then
+  TEMP_BASE="/dev/shm"
+elif [ -d /run ] && [ -w /run ]; then
+  TEMP_BASE="/run"
+else
+  TEMP_BASE="/tmp"
+fi
 
 log() {
   echo "[$(date '+%H:%M:%S')] $*" >> "$LOGFILE"
@@ -30,7 +39,6 @@ check_wake_word() {
   local fuzzy_result=$(python3 -c "
 import difflib, sys
 text = '''$lower_text'''
-# Palabras a buscar
 targets = ['nexo', 'neco', 'nejo', 'necho', 'neto', 'deco', 'mecso']
 words = text.split()
 for word in words:
@@ -49,53 +57,89 @@ print('NOMATCH')
   return 1
 }
 
+# ── Escuchar + VAD + transcribir sin escribir a disco ──────────────
+# Estrategia: primero detectamos actividad de voz en RAM pura,
+# SOLO si hay voz escribimos un WAV temporal y lo transcribimos.
 record_and_check() {
-  local outfile="/tmp/nexo-wake-$$.wav"
-  local trimmed="/tmp/nexo-wake-trimmed-$$.wav"
+  # 1. Capturar audio RAW en una tubería
+  local raw_file="$TEMP_BASE/nexo-wake-raw-$$.raw"
+  local wav_file="$TEMP_BASE/nexo-wake-$$.wav"
   
-  # Grabar audio
   export PULSE_SERVER="${PULSE_SERVER:-unix:/run/user/1000/pulse/native}"
-  timeout "$DURATION" parec --rate=16000 --channels=1 --format=s16le 2>/dev/null | \
-    ffmpeg -y -f s16le -ar 16000 -ac 1 -i pipe:0 "$outfile" 2>/dev/null
   
-  if [ ! -s "$outfile" ]; then
-    # Fallback: rec (SoX)
-    rec -q -r 16000 -c 1 -b 16 "$outfile" trim 0 "$DURATION" 2>/dev/null
+  # Grabar audio sin codificar (raw PCM)
+  timeout "$DURATION" parec --rate=16000 --channels=1 --format=s16le 2>/dev/null > "$raw_file"
+  if [ ! -s "$raw_file" ]; then
+    # Fallback: rec (SoX) directo a WAV
+    rec -q -r 16000 -c 1 -b 16 "$wav_file" trim 0 "$DURATION" 2>/dev/null
+    rm -f "$raw_file"
   fi
   
-  if [ ! -s "$outfile" ]; then
-    rm -f "$outfile"
-    return 1
-  fi
-  
-  # VAD: detectar si hay voz
-  local has_voice=$(python3 -c "
-import sys, json, os
-sys.path.insert(0, os.path.expanduser('~/.local/bin/miku-eco'))
-from vad_utils import has_speech
-hv, pct = has_speech('$outfile', aggressiveness=3)
-print('true' if hv else 'false')
+  # 2. VAD: detectar si hay voz SIN ESCRIBIR (procesando raw PCM en RAM)
+  local has_voice="false"
+  if [ -s "$raw_file" ]; then
+    has_voice=$(python3 -c "
+import sys, struct, math
+
+# Leer raw PCM s16le y detectar energia
+with open('$raw_file', 'rb') as f:
+    data = f.read()
+
+# Dividir en frames de 30ms (480 samples a 16kHz)
+frame_size = 480  # 30ms
+frames = [data[i:i+frame_size*2] for i in range(0, len(data), frame_size*2)]
+
+if not frames:
+    print('false')
+    sys.exit(0)
+
+# Calcular RMS de cada frame, contar frames con voz
+voice_frames = 0
+for frame in frames:
+    if len(frame) < frame_size * 2:
+        continue
+    samples = struct.unpack('<' + 'h' * (len(frame)//2), frame)
+    rms = math.sqrt(sum(s*s for s in samples) / len(samples)) if samples else 0
+    if rms > 300:  # Threshold de silencio
+        voice_frames += 1
+
+# Si mas del 10% de los frames tienen voz, hay actividad
+if voice_frames > max(1, len(frames) * 0.1):
+    print('true')
+else:
+    print('false')
 " 2>/dev/null)
+    rm -f "$raw_file"
+  else
+    # Si usamos rec, verificar el WAV
+    if [ -s "$wav_file" ]; then
+      local wav_size=$(stat -c%s "$wav_file" 2>/dev/null || echo 0)
+      if [ "$wav_size" -gt 5000 ]; then
+        has_voice="true"
+      fi
+    fi
+  fi
   
   if [ "$has_voice" != "true" ]; then
-    rm -f "$outfile"
+    rm -f "$raw_file" "$wav_file"
     return 1
   fi
   
-  # Recortar silencio
-  python3 -c "
-import sys, os
-sys.path.insert(0, os.path.expanduser('~/.local/bin/miku-eco'))
-from vad_utils import trim_silence
-trim_silence('$outfile', '$trimmed', aggressiveness=1)
-" 2>/dev/null
-  
-  local audio_file="$outfile"
-  if [ -s "$trimmed" ]; then
-    audio_file="$trimmed"
+  # 3. Si hay voz, convertir raw a WAV (si no se hizo antes)
+  if [ -s "$raw_file" ]; then
+    :
+  elif [ ! -s "$wav_file" ]; then
+    if [ -f "$raw_file" ]; then
+      ffmpeg -y -f s16le -ar 16000 -ac 1 -i "$raw_file" "$wav_file" 2>/dev/null
+    fi
   fi
   
-  # Transcribir
+  if [ ! -s "$wav_file" ]; then
+    rm -f "$wav_file"
+    return 1
+  fi
+  
+  # 4. Transcribir
   local text=$(python3 -c "
 import sys
 try:
@@ -106,7 +150,7 @@ except:
     import speech_recognition as sr
 
 r = sr.Recognizer()
-with sr.WavFile('$audio_file') as source:
+with sr.WavFile('$wav_file') as source:
     r.adjust_for_ambient_noise(source, duration=0.3)
     audio = r.record(source)
 
@@ -117,7 +161,7 @@ except:
     pass
 " 2>/dev/null)
   
-  rm -f "$outfile" "$trimmed"
+  rm -f "$wav_file" "$raw_file"
   
   if [[ -z "$text" ]]; then
     return 1
@@ -153,11 +197,11 @@ cmd_once() {
 }
 
 cmd_loop() {
-  echo "🔊 Nexo Wake — Modo loop infinito"
+  echo "🔊 Nexo Wake — Modo loop (sin escritura a disco)"
   echo "   Escuchando cada ${DURATION}s..."
   echo "   Wake word: 'nexo' (sensibilidad: $SENSITIVITY)"
+  echo "   Temp: $TEMP_BASE (RAM-based)"
   echo "   PID: $$"
-  echo "   Log: $LOGFILE"
   echo ""
   
   while true; do
@@ -175,17 +219,15 @@ cmd_loop() {
       if [[ -n "$command" ]]; then
         log "🗣️ Comando: $command"
         echo "🗣️ Procesando: $command"
-        # Ejecutar voice.sh con el comando (graba y transcribe el comando completo)
         bash ~/.opencode/voice.sh es 5 2>/dev/null
       else
-        # Esperar comando completo
         log "⏳ Esperando comando completo..."
         echo "⏳ Hablá tu comando..."
         bash ~/.opencode/voice.sh es 5 2>/dev/null
       fi
     fi
     
-    sleep 0.5  # Pequeña pausa entre ciclos
+    sleep 0.5
   done
 }
 
@@ -244,7 +286,7 @@ case "${1:-loop}" in
     fi
     ;;
   help|--help|-h)
-    head -50 "$0" | grep -E "^# " | sed 's/^# //'
+    head -50 "$0" | grep -E "^# " | sed 's/^# //' || echo "Uso: nexo-wake [once|loop|daemon|help]"
     ;;
   *)
     cmd_loop

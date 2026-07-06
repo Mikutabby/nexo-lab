@@ -127,13 +127,14 @@ case "$CMD" in
         skill_dir="$SKILLS_DIR/$skill_name"
         exec_def=$(echo "$exec_def" | sed "s|\$SKILL_DIR|$skill_dir|g; s|\$HOME|$HOME|g")
         
-        # Ejecutar
+        # Ejecutar (pasando argumentos)
+        local remaining_args="$*"
         if [[ "$exec_def" == ./scripts/* ]]; then
-            bash "$skill_dir/${exec_def#./}"
+            bash "$skill_dir/${exec_def#./}" $remaining_args
         elif [[ "$exec_def" == python3\ * ]]; then
-            eval "$exec_def"
+            eval "$exec_def $remaining_args"
         else
-            eval "$exec_def"
+            eval "$exec_def $remaining_args"
         fi
         ;;
     
