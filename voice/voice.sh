@@ -11,7 +11,11 @@ fi
 
 LANG="${1:-es-ES}"
 DUR="${2:-5}"
-OUTFILE="/tmp/opencode_voice.wav"
+
+# Usar /dev/shm (RAM) en vez de /tmp (disco) para reducir desgaste
+SHM_DIR="/dev/shm/nexo-voice"
+mkdir -p "$SHM_DIR" 2>/dev/null || SHM_DIR="/tmp"
+OUTFILE="$SHM_DIR/opencode_voice.wav"
 
 # Mapear código de idioma para Google
 case "$LANG" in
@@ -72,15 +76,15 @@ try:
     print(json.dumps({'has_voice': pct >= 15, 'pct': round(pct, 1)}))
 except Exception as e:
     print(json.dumps({'has_voice': True, 'pct': 50, 'error': str(e)}))
-" > /tmp/vad_result.json 2>/dev/null
+" > "$SHM_DIR/vad_result.json" 2>/dev/null
 
-VAD_HAS_VOICE=$(python3 -c "import json; d=json.load(open('/tmp/vad_result.json')); print('true' if d['has_voice'] else 'false')" 2>/dev/null)
-VAD_PCT=$(python3 -c "import json; d=json.load(open('/tmp/vad_result.json')); print(d['pct'])" 2>/dev/null)
+VAD_HAS_VOICE=$(python3 -c "import json; d=json.load(open('$SHM_DIR/vad_result.json')); print('true' if d['has_voice'] else 'false')" 2>/dev/null)
+VAD_PCT=$(python3 -c "import json; d=json.load(open('$SHM_DIR/vad_result.json')); print(d['pct'])" 2>/dev/null)
 echo "📊 VAD: voz=$VAD_HAS_VOICE ($VAD_PCT% frames)" >&2
 
 if [ "$VAD_HAS_VOICE" != "true" ]; then
     echo "⏹️  Sin voz detectada, omitiendo API" >&2
-    rm -f "$OUTFILE" /tmp/vad_result.json
+    rm -f "$OUTFILE" "$SHM_DIR/vad_result.json"
     exit 0
 fi
 
@@ -104,18 +108,18 @@ try:
             voiced_frames.append(frame)
     if voiced_frames:
         trimmed = b''.join(voiced_frames)
-        with wave.open('/tmp/opencode_voice_trimmed.wav', 'w') as wf:
+        with wave.open('$SHM_DIR/opencode_voice_trimmed.wav', 'w') as wf:
             wf.setparams(params)
             wf.writeframes(trimmed)
 except Exception:
     # Si falla, copiar original
     import shutil
-    shutil.copy('$OUTFILE', '/tmp/opencode_voice_trimmed.wav')
+    shutil.copy('$OUTFILE', '$SHM_DIR/opencode_voice_trimmed.wav')
 " 2>/dev/null
 
-if [ -s "/tmp/opencode_voice_trimmed.wav" ]; then
+if [ -s "$SHM_DIR/opencode_voice_trimmed.wav" ]; then
     OUTFILE_ORIG="$OUTFILE"
-    OUTFILE="/tmp/opencode_voice_trimmed.wav"
+    OUTFILE="$SHM_DIR/opencode_voice_trimmed.wav"
 fi
 
 # Usar Python speech_recognition
@@ -145,17 +149,17 @@ except sr.RequestError as e:
     print(f'ERROR:API no disponible - {e}')
 except Exception as e:
     print(f'ERROR:{e}')
-" > /tmp/voice_result.txt 2>/dev/null
+" > "$SHM_DIR/voice_result.txt" 2>/dev/null
 
-RESULT=$(cat /tmp/voice_result.txt 2>/dev/null)
+RESULT=$(cat "$SHM_DIR/voice_result.txt" 2>/dev/null)
 
 if echo "$RESULT" | grep -q "^TEXTO:"; then
     TEXT=$(echo "$RESULT" | sed 's/^TEXTO://')
     
     # === ECHO DETECTION ===
     # Comparar con el último texto hablado por TTS para evitar loops
-    if [[ -f /tmp/nexo-last-tts.txt ]]; then
-        LAST_TTS=$(cat /tmp/nexo-last-tts.txt | tr '[:upper:]' '[:lower:]' | sed 's/[^a-záéíóúñ0-9 ]//g')
+    if [[ -f "$SHM_DIR/nexo-last-tts.txt" ]]; then
+        LAST_TTS=$(cat "$SHM_DIR/nexo-last-tts.txt" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-záéíóúñ0-9 ]//g')
         TRANS_TTS=$(echo "$TEXT" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-záéíóúñ0-9 ]//g')
         
         # Jaccard similarity entre palabras del TTS y lo transcrito
@@ -177,9 +181,9 @@ else:
     print('OK')
 " 2>/dev/null | grep -q "ECHO" && {
         echo "🔇 Eco detectado — ignorando" >&2
-        rm -f "$OUTFILE" "$OUTFILE_ORIG" /tmp/opencode_voice_trimmed.wav /tmp/voice_result.txt /tmp/vad_result.json
+        rm -f "$OUTFILE" "$OUTFILE_ORIG" "$SHM_DIR/opencode_voice_trimmed.wav" "$SHM_DIR/voice_result.txt" "$SHM_DIR/vad_result.json"
         exit 0
-    }
+    fi
     fi
     
     echo "$TEXT"
@@ -191,4 +195,4 @@ elif echo "$RESULT" | grep -q "^ERROR:"; then
 fi
 
 # Limpiar
-rm -f "$OUTFILE" "$OUTFILE_ORIG" /tmp/opencode_voice_trimmed.wav /tmp/voice_result.txt /tmp/vad_result.json
+rm -f "$OUTFILE" "$OUTFILE_ORIG" "$SHM_DIR/opencode_voice_trimmed.wav" "$SHM_DIR/voice_result.txt" "$SHM_DIR/vad_result.json"

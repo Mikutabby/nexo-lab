@@ -26,6 +26,10 @@ set -euo pipefail
 LANG_DEFAULT="es"
 SPEED="normal"
 
+# Usar /dev/shm (RAM) en vez de /tmp (disco) para reducir desgaste
+SHM_DIR="/dev/shm/nexo-tts"
+mkdir -p "$SHM_DIR" 2>/dev/null || SHM_DIR="/tmp"
+
 # ─── MODELOS PIPER ───────────────────────────────────────────────────────────
 PIPER_BIN="piper"
 PIPER_VOICES_DIR="${HOME}/.local/share/piper-voices"
@@ -62,7 +66,7 @@ fi
 
 # ─── PREPROCESAMIENTO DE TEXTO (inspirado en Jarvis TTS) ─────────────────
 # Escribe script Python a archivo temporal para evitar problemas de quoting
-CLEAN_SCRIPT="/tmp/nexo-clean-text-$$.py"
+CLEAN_SCRIPT="$SHM_DIR/nexo-clean-text-$$.py"
 cat > "$CLEAN_SCRIPT" << 'PYEOF'
 import re, sys
 
@@ -198,21 +202,21 @@ if [ -n "$PIPER_MODEL_PATH" ] && command -v "$PIPER_BIN" &>/dev/null; then
         --output-raw \
         --length-scale "$LENGTH_SCALE" 2>/dev/null | \
         aplay -r 22050 -f S16_LE -c 1 -q 2>/dev/null && {
-        echo "$SAY_TEXT" > /tmp/nexo-last-tts.txt
+        echo "$SAY_TEXT" > "$SHM_DIR/nexo-last-tts.txt"
         exit 0
     }
 fi
 
 # ─── 2. gTTS (Google WaveNet, cloud) ────────────────────────────────────────
-OUT_FILE="/tmp/nexo-tts-$$.mp3"
+OUT_FILE="$SHM_DIR/nexo-tts-$$.mp3"
 
-printf '%s' "$SAY_TEXT" > /tmp/nexo-tts-texto.txt
+printf '%s' "$SAY_TEXT" > "$SHM_DIR/nexo-tts-texto.txt"
 
 python3 -c "
 import sys
 try:
     from gtts import gTTS
-    with open('/tmp/nexo-tts-texto.txt') as f:
+    with open('$SHM_DIR/nexo-tts-texto.txt') as f:
         txt = f.read()
     if not txt.strip():
         sys.exit(1)
@@ -223,12 +227,12 @@ except Exception:
     sys.exit(1)
 " 2>/dev/null
 
-rm -f /tmp/nexo-tts-texto.txt
+rm -f "$SHM_DIR/nexo-tts-texto.txt"
 
 if [ -s "$OUT_FILE" ]; then
     mpg123 --no-gapless -q "$OUT_FILE" 2>/dev/null
     rm -f "$OUT_FILE"
-    echo "$SAY_TEXT" > /tmp/nexo-last-tts.txt
+    echo "$SAY_TEXT" > "$SHM_DIR/nexo-last-tts.txt"
     exit 0
 fi
 rm -f "$OUT_FILE"
@@ -247,4 +251,4 @@ esac
 
 espeak-ng -v "$VOICE" -s "$SPEED_VAL" "$SAY_TEXT" 2>/dev/null
 
-echo "$SAY_TEXT" > /tmp/nexo-last-tts.txt
+echo "$SAY_TEXT" > "$SHM_DIR/nexo-last-tts.txt"

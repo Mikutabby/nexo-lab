@@ -8,15 +8,31 @@
 #   nexo-daemon status     → Estado
 #   nexo-daemon foreground → Ejecutar en primer plano (modo debug)
 
-PIDFILE="/tmp/nexo-daemon.pid"
-LOGFILE="/tmp/nexo-daemon.log"
+# Usar /dev/shm (RAM) en vez de /tmp (disco) para reducir desgaste
+SHM_DIR="/dev/shm/nexo-daemon"
+mkdir -p "$SHM_DIR" 2>/dev/null || SHM_DIR="/tmp"
+
+PIDFILE="$SHM_DIR/nexo-daemon.pid"
+LOGFILE="$SHM_DIR/nexo-daemon.log"
 VENV="$HOME/.nexo-venv"
 NEXO_DIR="$HOME/nexo-lab/nexo-lab"
 VOICE_SCRIPT="$NEXO_DIR/voice/voice.sh"
 BRAIN_SCRIPT="$NEXO_DIR/brain/nexo-brain.py"
 SAY_SCRIPT="$NEXO_DIR/voice/say.sh"
 
+# Rotación de log: max 1000 líneas
+rotate_log() {
+    if [ -f "$LOGFILE" ]; then
+        local lines=$(wc -l < "$LOGFILE" 2>/dev/null || echo 0)
+        if [ "$lines" -gt 1000 ]; then
+            tail -500 "$LOGFILE" > "$LOGFILE.tmp" 2>/dev/null
+            mv "$LOGFILE.tmp" "$LOGFILE" 2>/dev/null
+        fi
+    fi
+}
+
 log() {
+    rotate_log
     echo "[$(date '+%H:%M:%S')] $*" >> "$LOGFILE"
 }
 
