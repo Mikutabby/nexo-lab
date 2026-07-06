@@ -1,0 +1,62 @@
+#!/bin/bash
+CMD="${1:-help}"
+case "$CMD" in
+    start)
+        echo "🔷 Iniciando Nexo UI..."
+        nexo-ui-daemon start
+        sleep 1
+        nexo-ui-web --port 7070 &
+        sleep 1
+        nexo-ui-widget &
+        echo "✅ Nexo UI activo"
+        echo "   Web: http://127.0.0.1:7070"
+        echo "   Mini: http://127.0.0.1:7070/mini"
+        echo "   Widget: Conky en escritorio"
+        ;;
+    stop)
+        echo "🔷 Deteniendo Nexo UI..."
+        kill $(pgrep -f "nexo-ui-daemon") 2>/dev/null || true
+        kill $(pgrep -f "app.py.*7070") 2>/dev/null || true
+        kill $(pgrep -f "nexo-widget.conf") 2>/dev/null || true
+        nexo-ui-daemon stop 2>/dev/null || true
+        echo "✅ Nexo UI detenido"
+        ;;
+    status)
+        echo "🔷 Nexo UI — Estado:"
+        nexo-ui-daemon status 2>/dev/null || echo "  Daemon: inactivo"
+        pgrep -f "app.py.*7070" >/dev/null && echo "  Web App: activa" || echo "  Web App: inactiva"
+        pgrep -f "nexo-widget.conf" >/dev/null && echo "  Widget: activo" || echo "  Widget: inactivo"
+        ;;
+    web)
+        nexo-ui-web --port 7070 "$@"
+        ;;
+    widget)
+        nexo-ui-widget
+        ;;
+    daemon)
+        shift
+        nexo-ui-daemon "$@"
+        ;;
+    open)
+        xdg-open "http://127.0.0.1:7070" 2>/dev/null || sensible-browser "http://127.0.0.1:7070" 2>/dev/null || echo "Abrí http://127.0.0.1:7070 en tu navegador"
+        ;;
+    mini)
+        xdg-open "http://127.0.0.1:7070/mini" 2>/dev/null || sensible-browser "http://127.0.0.1:7070/mini" 2>/dev/null || echo "Abrí http://127.0.0.1:7070/mini en tu navegador"
+        ;;
+    help|--help|-h)
+        echo "Uso: nexo-ui <comando>"
+        echo ""
+        echo "  start    Iniciar todo (daemon + web + widget)"
+        echo "  stop     Detener todo"
+        echo "  status   Mostrar estado"
+        echo "  web      Iniciar solo web app"
+        echo "  widget   Iniciar solo widget Conky"
+        echo "  daemon   Controlar daemon (start|stop|status)"
+        echo "  open     Abrir interfaz en navegador"
+        echo "  mini     Abrir versión miniatura"
+        ;;
+    *)
+        echo "Comando desconocido: $CMD"
+        echo "Usá: nexo-ui help"
+        ;;
+esac

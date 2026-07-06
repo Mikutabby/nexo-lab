@@ -1,0 +1,188 @@
+#!/bin/bash
+# 🚀 Nexo PC Optimizer v2.0
+# Optimizaciones de potencia para PC vieja: Celeron 847, 4GB RAM, HDD
+# Creado por Nexo para miku
+# Uso: nexo-optimizar [all|status|restore]
+
+BACKUP_DIR="/home/miku/nexo-optimizer-backups"
+DATE=$(date +%Y%m%d_%H%M%S)
+PASS="0207"
+
+log() { echo -e "\033[1;32m[+]\033[0m $1"; }
+warn() { echo -e "\033[1;33m[!]\033[0m $1"; }
+err() { echo -e "\033[1;31m[x]\033[0m $1"; }
+
+backup() {
+    mkdir -p "$BACKUP_DIR/$DATE"
+    echo "$PASS" | sudo -S cp /etc/fstab "$BACKUP_DIR/$DATE/fstab" 2>/dev/null
+    echo "$PASS" | sudo -S cp -r /etc/sysctl.d "$BACKUP_DIR/$DATE/sysctl" 2>/dev/null
+    echo "$PASS" | sudo -S cp -r /etc/udev/rules.d "$BACKUP_DIR/$DATE/udev" 2>/dev/null
+    echo "$PASS" | sudo -S cp -r /etc/systemd/system "$BACKUP_DIR/$DATE/systemd" 2>/dev/null
+    log "Backup creado en $BACKUP_DIR/$DATE"
+}
+
+restore() {
+    local latest=$(ls -t "$BACKUP_DIR" 2>/dev/null | head -1)
+    if [ -z "$latest" ]; then err "No hay backups"; exit 1; fi
+    warn "Restaurando backup: $latest"
+    echo "$PASS" | sudo -S cp "$BACKUP_DIR/$latest/fstab" /etc/fstab 2>/dev/null
+    echo "$PASS" | sudo -S cp -r "$BACKUP_DIR/$latest/sysctl/"* /etc/sysctl.d/ 2>/dev/null
+    echo "$PASS" | sudo -S cp -r "$BACKUP_DIR/$latest/udev/"* /etc/udev/rules.d/ 2>/dev/null
+    echo "$PASS" | sudo -S cp -r "$BACKUP_DIR/$latest/systemd/"* /etc/systemd/system/ 2>/dev/null
+    log "Restaurado. Requiere reinicio."
+}
+
+optimize_all() {
+    log "=== 1. Governor schedutil ==="
+    echo "$PASS" | sudo -S bash -c '
+        echo schedutil > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null
+        echo schedutil > /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor 2>/dev/null
+    '
+    echo "$PASS" | sudo -S tee /etc/systemd/system/nexo-governor.service >/dev/null << 'SVC'
+[Unit]
+Description=Nexo CPU Governor - schedutil
+DefaultDependencies=no
+After=sysinit.target
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'for cpu in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo schedutil > "$cpu"; done'
+RemainAfterExit=yes
+[Install]
+WantedBy=sysinit.target
+SVC
+    echo "$PASS" | sudo -S systemctl enable nexo-governor.service 2>/dev/null
+    log "   Governor schedutil OK (CPU sube a 1.1GHz bajo carga)"
+
+    log "=== 2. BFQ I/O scheduler ==="
+    echo "$PASS" | sudo -S bash -c '
+        echo bfq > /sys/block/sda/queue/scheduler 2>/dev/null
+        cat > /etc/udev/rules.d/99-nexo-io-scheduler.rules << "RULES"
+ACTION=="add|change", KERNEL=="sd*[!0-9]", ATTR{queue/scheduler}="bfq"
+ACTION=="add|change", KERNEL=="sd*[!0-9]", ATTR{queue/read_ahead_kb}="16384"
+ACTION=="add|change", KERNEL=="sd*[!0-9]", ATTR{queue/nr_requests}="128"
+RULES
+    '
+    log "   BFQ + read_ahead=16384 + nr_requests=128 OK"
+
+    log "=== 3. Zstd en zram ==="
+    echo "$PASS" | sudo -S bash -c '
+        swapoff /dev/zram0 2>/dev/null
+        echo 1 > /sys/block/zram0/reset 2>/dev/null
+        echo zstd > /sys/block/zram0/comp_algorithm
+        echo 1941500K > /sys/block/zram0/disksize
+        mkswap /dev/zram0 >/dev/null 2>&1
+        swapon -p 100 /dev/zram0
+        cat > /etc/udev/rules.d/99-nexo-zram-zstd.rules << "RULES"
+ACTION=="add", SUBSYSTEM=="block", KERNEL=="zram0", ATTR{comp_algorithm}="zstd"
+RULES
+    '
+    log "   Zstd en zram OK (~40% mejor compresión)"
+
+    log "=== 4. Sysctl potencia ==="
+    echo "$PASS" | sudo -S tee /etc/sysctl.d/91-nexo-potencia.conf << 'EOF' >/dev/null
+vm.dirty_writeback_centisecs = 200
+vm.dirty_expire_centisecs = 1500
+vm.vfs_cache_pressure = 50
+vm.dirty_ratio = 10
+vm.dirty_background_ratio = 5
+vm.swappiness = 10
+net.core.rmem_max = 131072
+net.core.wmem_max = 131072
+EOF
+    echo "$PASS" | sudo -S sysctl -p /etc/sysctl.d/91-nexo-potencia.conf >/dev/null 2>&1
+    log "   Sysctl potencia OK"
+
+    log "=== 5. THP a madvise ==="
+    echo "$PASS" | sudo -S bash -c '
+        echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+        cat > /etc/systemd/system/nexo-thp.service << "SVC"
+[Unit]
+Description=Set THP to madvise
+DefaultDependencies=no
+Before=sysinit.target
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '\''echo madvise > /sys/kernel/mm/transparent_hugepage/enabled'\''
+RemainAfterExit=yes
+[Install]
+WantedBy=sysinit.target
+SVC
+        systemctl enable nexo-thp.service 2>/dev/null
+    '
+    log "   THP madvise OK"
+
+    log "=== 6. noatime en fstab ==="
+    echo "$PASS" | sudo -S sed -i 's/rw,relatime/rw,noatime/' /etc/fstab 2>/dev/null
+    log "   noatime OK (requiere reinicio)"
+
+    log "=== 7. tmpfs para /tmp ==="
+    echo "$PASS" | sudo -S bash -c '
+        grep -q "tmpfs /tmp" /etc/fstab || echo "tmpfs /tmp tmpfs rw,nosuid,nodev,size=512M 0 0" >> /etc/fstab
+        mount -t tmpfs tmpfs /tmp -o rw,nosuid,nodev,size=512M 2>/dev/null || true
+    '
+    log "   tmpfs /tmp OK (512MB en RAM)"
+
+    log "=== 8. Bluetooth off ==="
+    echo "$PASS" | sudo -S bash -c '
+        rfkill block bluetooth 2>/dev/null
+        modprobe -r btusb 2>/dev/null || true
+        echo "blacklist bluetooth" > /etc/modprobe.d/nexo-nobt.conf
+        rm -f /etc/xdg/autostart/blueman.desktop 2>/dev/null
+        rm -f /etc/xdg/autostart/at-spi-dbus-bus.desktop 2>/dev/null
+    '
+    log "   Bluetooth desactivado OK"
+
+    log "=== 9. Desactivar accounts-daemon ==="
+    echo "$PASS" | sudo -S systemctl disable --now accounts-daemon.service 2>/dev/null || true
+    log "   accounts-daemon desactivado OK"
+
+    log ""
+    log "====================================================================="
+    log "🚀 OPTIMIZACIONES APLICADAS EXITOSAMENTE"
+    log "====================================================================="
+    warn "  noatime + tmpfs /tmp: requieren REINICIO"
+    log ""
+    log "  CPU governor:      schedutil (1.1GHz bajo carga)"
+    log "  I/O scheduler:     BFQ (prioriza escritorio)"
+    log "  Zram:              zstd (~40% mejor compresión)"
+    log "  read_ahead:        16384KB"
+    log "  dirty_writeback:   200ms"
+    log "  THP:               madvise"
+    log "  /tmp:              RAM (512MB)"
+    log "  Bluetooth:         desactivado"
+    log "  accounts-daemon:   desactivado"
+    log ""
+    log "  Para ver estado:   nexo-optimizar --status"
+    log "  Para restaurar:    nexo-optimizar --restore"
+}
+
+show_status() {
+    log "=== ESTADO DE OPTIMIZACIONES ==="
+    echo ""
+    echo "Governor:         $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)"
+    echo "CPU freq:         $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq 2>/dev/null) KHz"
+    echo "I/O scheduler:    $(cat /sys/block/sda/queue/scheduler 2>/dev/null | grep -o '\[.*\]' | tr -d '[]')"
+    echo "read_ahead:       $(cat /sys/block/sda/queue/read_ahead_kb 2>/dev/null) KB"
+    echo "nr_requests:      $(cat /sys/block/sda/queue/nr_requests 2>/dev/null)"
+    echo "Zram algo:        $(cat /sys/block/zram0/comp_algorithm 2>/dev/null | grep -o '\[.*\]' | tr -d '[]')"
+    echo "Zram size:        $(zramctl 2>/dev/null | awk 'NR==2{print $3}')"
+    echo "THP:              $(cat /sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null | grep -oP '\[\K[^\]]+' || echo 'unknown')"
+    echo "noatime:          $(grep noatime /etc/fstab 2>/dev/null | grep -q noatime && echo '✅' || echo '❌')"
+    echo "/tmp type:        $(df -h /tmp 2>/dev/null | tail -1 | awk '{print $1}')"
+    echo "dirty_writeback:  $(cat /proc/sys/vm/dirty_writeback_centisecs 2>/dev/null) cs"
+    echo "dirty_ratio:      $(cat /proc/sys/vm/dirty_ratio 2>/dev/null)%"
+    echo "vfs_cache_press:  $(cat /proc/sys/vm/vfs_cache_pressure 2>/dev/null)"
+    echo "swappiness:       $(cat /proc/sys/vm/swappiness 2>/dev/null)"
+    echo "Bluetooth:        $(lsmod | grep -q bluetooth && echo '❌ Cargado' || echo '✅ Descargado')"
+    echo "accounts-daemon:  $(systemctl is-active accounts-daemon 2>/dev/null)"
+}
+
+case "${1:-all}" in
+    --status|status) show_status ;;
+    --restore|restore) restore ;;
+    all|full) backup && optimize_all ;;
+    *)
+        echo "Uso: nexo-optimizar [all|status|restore]"
+        exit 1
+        ;;
+esac

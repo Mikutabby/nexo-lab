@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Pixel Forge</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0a;color:#e0e0e0;font-family:'Courier New',monospace;display:flex;flex-direction:column;align-items:center;min-height:100vh}
+#hud{width:800px;padding:8px 16px;display:flex;justify-content:space-between;background:#1a1a2e;border-bottom:2px solid #0f3460;font-size:14px}
+#hud span{color:#53d8fb}
+canvas{border:2px solid #0f3460;background:#000;image-rendering:pixelated;cursor:crosshair;display:block}
+#bar{width:800px;padding:10px 16px;display:flex;gap:8px;background:#1a1a2e;border-top:2px solid #0f3460;flex-wrap:wrap;align-items:center}
+button{background:#0f3460;color:#53d8fb;border:1px solid #53d8fb;padding:6px 14px;font-family:inherit;cursor:pointer;font-size:13px}
+button:hover{background:#53d8fb;color:#000}
+#msg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.92);color:#e94560;padding:18px 36px;font-size:1.4em;border:2px solid #e94560;display:none;z-index:99;text-align:center}
+#help{width:800px;text-align:center;font-size:12px;color:#555;padding:6px}
+</style>
+</head>
+<body>
+<div id="hud">
+  <span>Pixel Forge</span>
+  <span>❤️<span id="hp">100</span> ⚡<span id="nrg">100</span> 🧩<span id="tls">0</span> 🏆<span id="scr">0</span></span>
+</div>
+<canvas id="c" width="800" height="480"></canvas>
+<div id="bar">
+  <button onclick="G.forge('lava')">🔥Fuego</button>
+  <button onclick="G.forge('water')">💧Agua</button>
+  <button onclick="G.forge('ground')">🪨Tierra</button>
+  <button onclick="G.forge('platform')">💨Aire</button>
+  <button onclick="G.forge('void')">🕳️Vacío</button>
+  <button onclick="G.nextLevel()">⏭️Nivel</button>
+  <button onclick="G.reset()">🔄Reset</button>
+</div>
+<div id="help">WASD/ Flechas: mover · Click: forjar tile · Espacio: habilidad especial</div>
+<div id="msg"></div>
+
+<script>
+// ============================================================
+//  PIXEL FORGE — clean rewrite
+// ============================================================
+
+const W = 800, H = 480, TS = 32;
+const COLS = 50, ROWS = 15;
+const GRAV = 0.45, SPEED = 3.8, JUMP = -9.5;
+const COYOTE = 6, JBUF = 6;
+
+const BIOMES = {
+  earth:   {name:'Tierra',  bg:'#0a0a00', gnd:'#445500', acc:'#aacc00', plc:'#ccdd00', lava:false},
+  fire:    {name:'Fuego',   bg:'#1a0800', gnd:'#8b2500', acc:'#ff6600', plc:'#ffaa00', lava:true },
+  water:   {name:'Agua',    bg:'#001122', gnd:'#004466', acc:'#00aaff', plc:'#00ddff', lava:false},
+  air:     {name:'Aire',    bg:'#0a0a1a', gnd:'#445577', acc:'#aaddff', plc:'#ffffff', lava:false},
+  void:    {name:'Vacío',   bg:'#05000a', gnd:'#220044', acc:'#aa00ff', plc:'#ff00ff', lava:false},
+};
+const BIOME_ORDER = ['earth','fire','water','air','void'];
+
+// ---- Audio ----
+let audioCtx = null;
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+}
+function beep(freq, dur, type, vol){
+  if(!audioCtx) return;
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.type = type||'sine';
+  o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  o.frequency.exponentialRampToValueAtTime(freq*0.5, audioCtx.currentTime+dur);
+  g.gain.setValueAtTime(vol||0.2, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+dur);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(); o.stop(audioCtx.currentTime+dur);
+}
+function sfxJump()  { beep(300, 0.12, 'sine', 0.15); }
+function sfxForge() { beep(800, 0.08, 'triangle', 0.2); beep(400, 0.12, 'square', 0.1); }
+function sfxHit()   { beep(120, 0.25, 'sawtooth', 0.3); }
+function sfxCollect(){ beep(600, 0.15, 'sine', 0.15); setTimeout(()=>beep(900,0.15,'sine',0.12),80); }
+
+// ---- World generation (simple noise) ----
+function genWorld(biome){
+  const g = [];
+  for(let y=0;y<ROWS;y++){
+    g[y]=[];
+    for(let x=0;x<COLS;x++){
+      if(y===ROWS-1){ g[y][x]='gnd'; continue; }
+      if(y>=ROWS-3){ g[y][x]=Math.random()<0.6?'gnd':'air'; continue; }
+      if(y<4){ g[y][x]='air'; continue; }
+      g[y][x]=Math.random()<0.12?'gnd':'air';
+    }
+  }
+  // Platforms
+  for(let i=0;i<10;i++){
+    const px=4+Math.floor(Math.random()*(COLS-8));
+    const py=3+Math.floor(Math.random()*(ROWS-6));
+    const pw=2+Math.floor(Math.random()*5);
+    for(let w=0;w<pw;w++) if(px+w<COLS) g[py][px+w]='gnd';
+  }
+  // Biome hazards
+  if(biome==='fire'){
+    for(let i=0;i<6;i++){
+      const x=Math.floor(Math.random()*COLS);
+      g[ROWS-2][x]='lava';
+    }
+  }
+  if(biome==='water'){
+    for(let y=ROWS-5;y<ROWS-1;y++)
+      for(let x=0;x<COLS;x++)
+        if(Math.random()<0.3) g[y][x]='water';
+  }
+  if(biome==='void'){
+    for(let i=0;i<8;i++){
+      const x=Math.floor(Math.random()*COLS);
+      const y=Math.floor(Math.random()*(ROWS-3))+2;
+      g[y][x]='void';
+    }
+  }
+  return g;
+}
+
+// ---- Particles ----
+let particles = [];
+function emitP(x,y,col,n,spread){
+  for(let i=0;i<n;i++){
+    particles.push({
+      x, y,
+      vx:(Math.random()-0.5)*(spread||3),
+      vy:(Math.random()-0.5)*(spread||3)-1.5,
+      life:20+Math.random()*15,
+      max:20+Math.random()*15,
+      col, sz:2+Math.random()*3
+    });
+  }
+}
+function updateP(){
+  particles=particles.filter(p=>{
+    p.x+=p.vx; p.y+=p.vy; p.vy+=0.08; p.life--;
+    return p.life>0;
+  });
+}
+function drawP(c){
+  particles.forEach(p=>{
+    c.globalAlpha=p.life/p.max;
+    c.fillStyle=p.col;
+    c.fillRect(p.x-p.sz/2,p.y-p.sz/2,p.sz,p.sz);
+  });
+  c.globalAlpha=1;
+}
+
+// ---- Shake ----
+let shakeX=0, shakeY=0, shakeDur=0, shakeInt=0;
+function shake(int,dur){ shakeInt=int; shakeDur=dur; }
+function updateShake(){
+  if(shakeDur>0){
+    shakeX=(Math.random()-0.5)*shakeInt*2;
+    shakeY=(Math.random()-0.5)*shakeInt*2;
+    shakeDur--; shakeInt*=0.85;
+  } else { shakeX=0; shakeY=0; }
+}
+
+// ---- Hitstop ----
+let hitstop=0;
+function doHitstop(f){ hitstop=f; }
+
+// ---- Player ----
+const P = {
+  x:100, y:100, vx:0, vy:0,
+  w:22, h:28,
+  hp:100, maxHp:100,
+  nrg:100, maxNrg:100,
+  ground:false, coyT:0, jBufT:0,
+  face:1, inv:0, abilCD:0,
+  tiles:0, score:0,
+};
+
+// ---- Camera ----
+let camX=0, camY=0;
+
+// ---- Input ----
+const keys={};
+let forgeType='gnd';
+const FORGE_MAP={lava:'lava',water:'water',ground:'gnd',platform:'plat',void:'void'};
+
+// ---- Enemies ----
+let enemies=[];
+function spawnEnemies(biome){
+  enemies=[];
+  const n=5+G.level*2;
+  for(let i=0;i<n;i++){
+    enemies.push({
+      x:200+Math.random()*(COLS*TS-400),
+      y:50+Math.random()*300,
+      vx:0, vy:0,
+      w:28, h:28,
+      hp:15, maxHp:15,
+      dir: Math.random()<0.5?-1:1,
+      timer: Math.floor(Math.random()*120),
+      type: Math.random()<0.08?'boss':'basic',
+      col: BIOMES[biome].acc,
+    });
+  }
+}
+
+// ---- Collectibles ----
+let items=[];
+function spawnItems(){
+  items=[];
+  for(let i=0;i<12;i++){
+    items.push({
+      x:120+Math.random()*(COLS*TS-240),
+      y:40+Math.random()*320,
+      type: Math.random()<0.3?'hp':(Math.random()<0.5?'nrg':'tile'),
+      got:false, bob:Math.random()*6.28
+    });
+  }
+}
+
+// ---- Tile helpers ----
+function tileAt(gx,gy){
+  if(gy<0||gy>=ROWS||gx<0||gx>=COLS) return 'air';
+  return world[gy][gx];
+}
+function isSolid(t){ return t==='gnd'||t==='plat'||t==='void'; }
+
+// ---- Collision ----
+function collideEnt(e){
+  // Horizontal
+  e.x+=e.vx;
+  const tl=Math.floor(e.x/TS), tr=Math.floor((e.x+e.w-1)/TS);
+  const tt=Math.floor(e.y/TS), tb=Math.floor((e.y+e.h-1)/TS);
+  for(let gy=tt;gy<=tb;gy++){
+    for(let gx=tl;gx<=tr;gx++){
+      if(isSolid(tileAt(gx,gy))){
+        if(e.vx>0) e.x=gx*TS-e.w;
+        else if(e.vx<0) e.x=(gx+1)*TS;
+        e.vx=0;
+      }
+    }
+  }
+  // Vertical
+  e.vy+= (e===P?GRAV:GRAV*0.6);
+  e.y+=e.vy;
+  e.ground=false;
+  const tl2=Math.floor(e.x/TS), tr2=Math.floor((e.x+e.w-1)/TS);
+  const tt2=Math.floor(e.y/TS), tb2=Math.floor((e.y+e.h-1)/TS);
+  for(let gy=tt2;gy<=tb2;gy++){
+    for(let gx=tl2;gx<=tr2;gx++){
+      if(isSolid(tileAt(gx,gy))){
+        if(e.vy>0){ e.y=gy*TS-e.h; e.ground=true; }
+        else if(e.vy<0){ e.y=(gy+1)*TS; }
+        e.vy=0;
+      }
+    }
+  }
+  // Bounds
+  e.x=Math.max(0,Math.min(e.x,COLS*TS-e.w));
+  e.y=Math.max(0,Math.min(e.y,ROWS*TS));
+}
+
+// ---- Message ----
+let msgTimer=0;
+function showMsg(txt,dur){
+  const el=document.getElementById('msg');
+  el.textContent=txt; el.style.display='block';
+  msgTimer=dur||1500;
+}
+
+// ---- Game State ----
+let world=[], biome='earth', level=1;
+let chromatic=0;
+
+const G = {
+  level:1,
+  nextLevel(){
+    this.level++;
+    this.start();
+  },
+  reset(){
+    this.level=1;
+    P.hp=P.maxHp; P.nrg=P.maxNrg; P.tiles=0; P.score=0;
+    this.start();
+  },
+  forge(type){
+    forgeType=FORGE_MAP[type]||'gnd';
+  },
+  start(){
+    biome=BIOME_ORDER[(this.level-1)%BIOME_ORDER.length];
+    world=genWorld(biome);
+    P.x=100; P.y=100; P.vx=0; P.vy=0; P.hp=P.maxHp; P.inv=0; P.abilCD=0;
+    camX=0; camY=0;
+    spawnEnemies(biome);
+    spawnItems();
+    particles=[];
+    showMsg('NIVEL '+this.level+': '+BIOMES[biome].name.toUpperCase(),2000);
+  },
+};
+
+// ---- Update Player ----
+function updateP_Player(){
+  if(P.inv>0) P.inv--;
+  if(P.abilCD>0) P.abilCD--;
+  if(P.nrg<P.maxNrg) P.nrg=Math.min(P.maxNrg,P.nrg+0.08);
+
+  // Horizontal
+  if(keys['a']||keys['arrowleft']){ P.vx=-SPEED; P.face=-1; }
+  else if(keys['d']||keys['arrowright']){ P.vx=SPEED; P.face=1; }
+  else P.vx*=0.7;
+
+  // Coyote
+  if(P.ground) P.coyT=COYOTE; else P.coyT--;
+  // Jump buffer
+  if(keys['w']||keys['arrowup']||keys[' ']) P.jBufT=JBUF; else P.jBufT--;
+
+  if(P.jBufT>0 && P.coyT>0){
+    P.vy=JUMP; P.coyT=0; P.jBufT=0; P.ground=false;
+    sfxJump();
+    emitP(P.x+P.w/2,P.y+P.h,'#fff',4,2);
+  }
+
+  collideEnt(P);
+
+  // Standing tile
+  const stx=Math.floor((P.x+P.w/2)/TS);
+  const sty=Math.floor((P.y+P.h+1)/TS);
+  const st=tileAt(stx,sty);
+  if(st==='lava'){
+    if(P.inv<=0){
+      P.hp-=2; P.inv=20;
+      shake(4,5); sfxHit(); chromatic=6;
+    }
+  }
+}
+
+// ---- Update Enemies ----
+function updateEnemies(){
+  enemies=enemies.filter(e=>{
+    // AI
+    const dx=P.x-e.x, dy=P.y-e.y;
+    const dist=Math.hypot(dx,dy);
+    e.timer++;
+
+    if(dist<120){
+      // Chase
+      e.vx=(dx/dist)*1.8;
+    } else if(e.timer>80){
+      e.dir*=-1; e.timer=0;
+      e.vx=e.dir*1;
+    }
+    e.vy+=0.01; // tiny gravity
+
+    collideEnt(e);
+
+    // Player collision
+    if(P.inv<=0 && dist<28){
+      P.hp-=12; P.inv=30;
+      shake(6,8); doHitstop(4); sfxHit(); chromatic=8;
+      const a=Math.atan2(dy,dx);
+      P.vx=Math.cos(a)*7; P.vy=Math.sin(a)*6-3;
+    }
+
+    // Damage from player falling
+    if(P.vy>6 && dist<40 && P.ground===false){
+      e.hp-=30;
+      P.vy=JUMP*0.6;
+      shake(3,4); sfxHit();
+      emitP(e.x+e.w/2,e.y+e.h/2,e.col,10,3);
+    }
+
+    return e.hp>0;
+  });
+}
+
+// ---- Update Collectibles ----
+function updateItems(){
+  items.forEach(it=>{
+    if(it.got) return;
+    const iy=it.y+Math.sin(Date.now()*0.003+it.bob)*4;
+    const dist=Math.hypot(P.x+P.w/2-it.x, P.y+P.h/2-iy);
+    if(dist<24){
+      it.got=true; sfxCollect();
+      emitP(it.x,iy,'#ffdd00',8,3);
+      if(it.type==='hp'){ P.hp=Math.min(P.maxHp,P.hp+20); showMsg('+20 HP',700); }
+      else if(it.type==='nrg'){ P.nrg=Math.min(P.maxNrg,P.nrg+25); showMsg('+25 ENERGY',700); }
+      else { P.tiles++; P.score+=10; showMsg('+1 TILE',700); }
+    }
+  });
+}
+
+// ---- Special Ability ----
+function useAbility(){
+  if(P.abilCD>0||P.nrg<25) return;
+  let used=false;
+
+  if(biome==='fire'){
+    // Fire blast
+    enemies.forEach(e=>{
+      if(Math.hypot(e.x-P.x,e.y-P.y)<160){ e.hp-=25; emitP(e.x,e.y,'#ff4400',12); }
+    });
+    shake(7,8); doHitstop(3); used=true;
+  } else if(biome==='water'){
+    P.vy=-10;
+    enemies.forEach(e=>{
+      if(Math.hypot(e.x-P.x,e.y-P.y)<130){ e.vy-=4; e.hp-=12; }
+    });
+    emitP(P.x,P.y,'#0088ff',15,4); used=true;
+  } else if(biome==='earth'){
+    // Wall
+    for(let i=1;i<=5;i++){
+      const tx=Math.floor(P.x/TS)+P.face*i;
+      const ty=Math.floor(P.y/TS);
+      if(tx>=0&&tx<COLS&&ty>=0&&ty<ROWS){ world[ty][tx]='gnd'; if(ty+1<ROWS) world[ty+1][tx]='gnd'; }
+    }
+    shake(4,6); sfxForge(); used=true;
+  } else if(biome==='air'){
+    P.vy=-13; P.inv=25;
+    emitP(P.x,P.y+P.h,'#aaddff',10,2); used=true;
+  } else if(biome==='void'){
+    // Teleport to nearest enemy
+    let best=null, bestD=999;
+    enemies.forEach(e=>{
+      const d=Math.hypot(e.x-P.x,e.y-P.y);
+      if(d<bestD){ bestD=d; best=e; }
+    });
+    if(best){
+      emitP(P.x,P.y,'#9900ff',15,5);
+      P.x=best.x; P.y=best.y-30;
+      emitP(P.x,P.y,'#9900ff',15,5);
+      sfxHit(); chromatic=8; used=true;
+    }
+  }
+  if(used){ P.nrg-=25; P.abilCD=50; }
+}
+
+// ---- Camera ----
+function updateCam(){
+  const tx=P.x-W/2+P.w/2;
+  const ty=P.y-H/2+P.h/2;
+  camX+=(tx-camX)*0.1;
+  camY+=(ty-camY)*0.1;
+  camX=Math.max(0,Math.min(camX,COLS*TS-W));
+  camY=Math.max(0,Math.min(camY,ROWS*TS-H));
+}
+
+// ---- DRAW ----
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+
+function drawWorld(){
+  const b=BIOMES[biome];
+  // Background
+  ctx.fillStyle=b.bg;
+  ctx.fillRect(0,0,W,H);
+
+  // Parallax stars
+  ctx.fillStyle=b.acc;
+  for(let i=0;i<40;i++){
+    const x=(i*137+Date.now()*0.008)%W;
+    const y=(i*97)%H;
+    ctx.globalAlpha=0.2+Math.sin(Date.now()*0.002+i)*0.15;
+    ctx.fillRect(x,y,1+(i%3),1+(i%3));
+  }
+  ctx.globalAlpha=1;
+
+  // Tiles
+  const sx=Math.floor(camX/TS)-1;
+  const sy=Math.floor(camY/TS)-1;
+  const ex=sx+Math.ceil(W/TS)+3;
+  const ey=sy+Math.ceil(H/TS)+3;
+
+  for(let gy=sy;gy<=ey;gy++){
+    for(let gx=sx;gx<=ex;gx++){
+      const t=tileAt(gx,gy);
+      if(t==='air') continue;
+      const px=gx*TS-camX;
+      const py=gy*TS-camY;
+
+      if(t==='gnd'){
+        ctx.fillStyle=b.gnd;
+        ctx.fillRect(px,py,TS,TS);
+        // Texture dots
+        ctx.fillStyle=b.acc;
+        ctx.globalAlpha=0.25;
+        ctx.fillRect(px+3,py+3,3,3);
+        ctx.fillRect(px+18,py+14,5,5);
+        ctx.globalAlpha=1;
+      } else if(t==='lava'){
+        const w=Math.sin(Date.now()*0.005+gx*0.7)*3;
+        ctx.fillStyle='#ff2200';
+        ctx.fillRect(px,py+w,TS,TS-w);
+        ctx.fillStyle='#ffaa00';
+        ctx.globalAlpha=0.5;
+        ctx.fillRect(px+4,py+w+4,TS-8,6);
+        ctx.globalAlpha=1;
+      } else if(t==='water'){
+        ctx.fillStyle='rgba(0,100,255,0.55)';
+        ctx.fillRect(px,py,TS,TS);
+        ctx.fillStyle='#00ccff';
+        ctx.globalAlpha=0.3;
+        const ww=Math.sin(Date.now()*0.003+gx)*2;
+        ctx.fillRect(px,py+ww,TS,3);
+        ctx.globalAlpha=1;
+      } else if(t==='plat'){
+        ctx.fillStyle=b.acc;
+        ctx.fillRect(px,py,TS,6);
+        ctx.globalAlpha=0.4;
+        ctx.fillStyle=b.acc;
+        ctx.fillRect(px+4,py+6,TS-8,4);
+        ctx.globalAlpha=1;
+      } else if(t==='void'){
+        ctx.fillStyle='#9900ff';
+        ctx.fillRect(px,py,TS,TS);
+        ctx.fillStyle='#ff00ff';
+        ctx.globalAlpha=0.25+Math.random()*0.2;
+        ctx.fillRect(px,py+Math.random()*8,TS,2);
+        ctx.globalAlpha=1;
+      }
+    }
+  }
+}
+
+function drawEnemies(){
+  enemies.forEach(e=>{
+    const sx=e.x-camX, sy=e.y-camY;
+    if(sx<-50||sx>W+50||sy<-50||sy>H+50) return;
+    ctx.fillStyle=e.col;
+    ctx.fillRect(sx,sy,e.w,e.h);
+    // Eyes
+    ctx.fillStyle='#fff';
+    ctx.fillRect(sx+6,sy+6,5,5);
+    ctx.fillRect(sx+17,sy+6,5,5);
+    ctx.fillStyle='#000';
+    ctx.fillRect(sx+7,sy+7,3,3);
+    ctx.fillRect(sx+18,sy+7,3,3);
+    // HP bar
+    if(e.hp<e.maxHp){
+      ctx.fillStyle='#333'; ctx.fillRect(sx,sy-6,e.w,3);
+      ctx.fillStyle='#f00'; ctx.fillRect(sx,sy-6,e.w*(e.hp/e.maxHp),3);
+    }
+  });
+}
+
+function drawItems(){
+  items.forEach(it=>{
+    if(it.got) return;
+    const sx=it.x-camX;
+    const sy=(it.y+Math.sin(Date.now()*0.003+it.bob)*4)-camY;
+    if(sx<-20||sx>W+20||sy<-20||sy>H+20) return;
+    const cols={hp:'#ff4444',nrg:'#4488ff',tile:'#ffdd00'};
+    ctx.fillStyle=cols[it.type];
+    ctx.fillRect(sx-5,sy-5,10,10);
+    ctx.fillStyle='#fff';
+    ctx.fillRect(sx-2,sy-2,4,4);
+  });
+}
+
+function drawPlayer(){
+  const sx=P.x-camX, sy=P.y-camY;
+  const b=BIOMES[biome];
+
+  // Invincibility flash
+  if(P.inv>0 && Math.floor(P.inv/3)%2===0){
+    ctx.globalAlpha=0.4;
+  }
+
+  // Squash/stretch on landing
+  let sy2=sy, sh=P.h;
+  if(P.ground && Math.abs(P.vy)<0.5){
+    // slight squash when standing
+  }
+
+  ctx.fillStyle=b.plc;
+  ctx.fillRect(sx,sy,P.w,P.h);
+
+  // Eyes
+  const ex=P.face>0?sx+10:sx+4;
+  ctx.fillStyle='#fff';
+  ctx.fillRect(ex,sy+5,6,5);
+  ctx.fillRect(ex+8,sy+5,6,5);
+  ctx.fillStyle='#111';
+  ctx.fillRect(ex+2,sy+6,3,3);
+  ctx.fillRect(ex+10,sy+6,3,3);
+
+  // Arm
+  ctx.fillStyle=b.acc;
+  if(P.face>0) ctx.fillRect(sx+P.w,sy+9,6,4);
+  else ctx.fillRect(sx-6,sy+9,6,4);
+
+  // Forge indicator
+  const fcols={gnd:b.gnd,lava:'#ff4400',water:'#0088ff',plat:b.acc,void:'#9900ff'};
+  ctx.fillStyle='#222'; ctx.fillRect(sx-4,sy-14,30,6);
+  ctx.fillStyle=fcols[forgeType]||'#fff'; ctx.fillRect(sx-2,sy-13,26,4);
+
+  ctx.globalAlpha=1;
+}
+
+function drawHUD(){
+  // HP
+  ctx.fillStyle='#222'; ctx.fillRect(10,10,160,14);
+  ctx.fillStyle='#e33'; ctx.fillRect(10,10,160*(P.hp/P.maxHp),14);
+  ctx.fillStyle='#fff'; ctx.font='10px Courier New';
+  ctx.fillText('HP '+Math.ceil(P.hp),14,21);
+
+  // NRG
+  ctx.fillStyle='#222'; ctx.fillRect(10,30,160,14);
+  ctx.fillStyle='#33e'; ctx.fillRect(10,30,160*(P.nrg/P.maxNrg),14);
+  ctx.fillStyle='#fff';
+  ctx.fillText('NRG '+Math.ceil(P.nrg),14,41);
+
+  // Biome
+  ctx.fillStyle=BIOMES[biome].acc;
+  ctx.fillRect(W-100,8,92,20);
+  ctx.fillStyle='#000'; ctx.font='12px Courier New';
+  ctx.fillText(BIOMES[biome].name,W-94,22);
+
+  // Ability CD
+  if(P.abilCD>0){
+    ctx.fillStyle='#333'; ctx.fillRect(W-100,34,92,6);
+    ctx.fillStyle='#e94560'; ctx.fillRect(W-100,34,92*(1-P.abilCD/50),6);
+  }
+
+  // Chromatic aberration (overlay)
+  if(chromatic>0.5){
+    ctx.globalAlpha=chromatic*0.03;
+    ctx.fillStyle='#ff0000';
+    ctx.fillRect(2,0,W,H);
+    ctx.fillStyle='#0000ff';
+    ctx.fillRect(-2,0,W,H);
+    ctx.globalAlpha=1;
+  }
+}
+
+// ---- MAIN LOOP ----
+let lastT=0, msgT=0;
+
+function loop(ts){
+  requestAnimationFrame(loop);
+
+  // Delta
+  const dt=ts-lastT; lastT=ts;
+
+  // Hitstop
+  if(hitstop>0){ hitstop--; return; }
+
+  // Message timer
+  if(msgTimer>0){
+    msgTimer-=16;
+    if(msgTimer<=0) document.getElementById('msg').style.display='none';
+  }
+
+  // Chromatic decay
+  chromatic*=0.92;
+
+  // Update
+  updateP_Player();
+  updateEnemies();
+  updateItems();
+  updateCam();
+  updateShake();
+  updateP();
+
+  // Draw with shake
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  drawWorld();
+  drawEnemies();
+  drawItems();
+  drawPlayer();
+  drawP(ctx);
+  drawHUD();
+
+  ctx.restore();
+
+  // HUD text
+  document.getElementById('hp').textContent=Math.ceil(P.hp);
+  document.getElementById('nrg').textContent=Math.ceil(P.nrg);
+  document.getElementById('tls').textContent=P.tiles;
+  document.getElementById('scr').textContent=P.score;
+
+  // Game over
+  if(P.hp<=0){
+    showMsg('GAME OVER — Score: '+P.score, 2500);
+    setTimeout(()=>G.reset(), 2500);
+    P.hp=P.maxHp; // prevent loop
+  }
+}
+
+// ---- Events ----
+document.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  keys[k]=true;
+  if(k===' '||k==='w'||k==='arrowup'){ e.preventDefault(); }
+  if(k===' '){ initAudio(); useAbility(); }
+  if(k==='q'){
+    const types=['gnd','lava','plat','water','void'];
+    forgeType=types[(types.indexOf(forgeType)+1)%types.length];
+  }
+});
+document.addEventListener('keyup',e=>{ keys[e.key.toLowerCase()]=false; });
+canvas.addEventListener('mousedown',e=>{
+  initAudio();
+  const rect=canvas.getBoundingClientRect();
+  const mx=(e.clientX-rect.left)*(W/rect.width);
+  const my=(e.clientY-rect.top)*(H/rect.height);
+  // Forage tile
+  if(P.nrg>=10){
+    const gx=Math.floor((mx+camX)/TS);
+    const gy=Math.floor((my+camY)/TS);
+    const ptx=Math.floor(P.x/TS), pty=Math.floor(P.y/TS);
+    if(Math.abs(gx-ptx)>1||Math.abs(gy-pty)>1){
+      if(gy>=0&&gy<ROWS&&gx>=0&&gx<COLS){
+        world[gy][gx]=forgeType;
+        P.nrg-=10;
+        sfxForge();
+        shake(3,4);
+        emitP(mx,my,BIOMES[biome].acc,6,3);
+      }
+    }
+  }
+});
+
+// ---- Start ----
+G.start();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

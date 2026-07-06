@@ -1,0 +1,2 @@
+#!/bin/bash
+exec bash "$HOME/nexo-lab/nexo-lab/brain/nexo-daemon.sh" "$@"

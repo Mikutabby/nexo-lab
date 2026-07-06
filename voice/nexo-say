@@ -1,0 +1,14 @@
+#!/bin/bash
+# nexo-say - Habla con TTS y anima la cara si está abierta
+# Wrapper que detecta si nexo-face está corriendo y sincroniza
+
+STATE_FILE="/tmp/nexo-face-state.json"
+FACE_PID=$(pgrep -f "python3 -m http.server 7072" 2>/dev/null)
+
+# Si la cara está abierta, usar nexo-face-say
+if [ -n "$FACE_PID" ]; then
+    exec bash ~/.local/bin/nexo-face-say "$@"
+else
+    # Si no, solo TTS normal
+    exec bash ~/.opencode/say.sh "$@"
+fi

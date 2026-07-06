@@ -1,0 +1,3 @@
+#!/bin/bash
+. "$HOME/.nexo-venv/bin/activate"
+exec python3 "$HOME/nexo-lab/nexo-lab/brain/nexo-brain.py" "$@"

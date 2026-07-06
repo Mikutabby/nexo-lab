@@ -1,0 +1,66 @@
+#!/bin/bash
+# 📱 Nexo Telegram — Notificaciones por Telegram
+# Uso: nexo-telegram "mensaje"           → enviar mensaje
+#      nexo-telegram --check             → recibir último mensaje
+#      nexo-telegram --review            → revisar último commit y notificar
+
+CONFIG="$HOME/.config/nexo/telegram.json"
+
+if [ ! -f "$CONFIG" ]; then
+  echo "❌ No hay configuración de Telegram en $CONFIG"
+  exit 1
+fi
+
+CHAT_ID=$(jq -r '.telegram.chat_id' "$CONFIG")
+BOT_TOKEN=$(jq -r '.telegram.bot_token' "$CONFIG")
+API_URL="https://api.telegram.org/bot${BOT_TOKEN}"
+
+send_message() {
+  local text="$1"
+  curl -s -X POST "${API_URL}/sendMessage" \
+    -d "chat_id=${CHAT_ID}" \
+    -d "text=${text}" \
+    -d "parse_mode=Markdown" > /dev/null 2>&1
+  echo "✅ Mensaje enviado"
+}
+
+get_updates() {
+  curl -s "${API_URL}/getUpdates?offset=-1&limit=1" 2>/dev/null | \
+    jq -r '.result[-1].message.text // "no_message"'
+}
+
+review_latest() {
+  cd ~/nexo-lab 2>/dev/null || { echo "❌ No hay repo nexo-lab"; exit 1; }
+  
+  local commit=$(git log -1 --format="%h %s" 2>/dev/null)
+  local files=$(git diff --stat HEAD~1 HEAD 2>/dev/null | tail -1)
+  local author=$(git log -1 --format="%an" 2>/dev/null)
+  local date=$(git log -1 --format="%ci" 2>/dev/null)
+  
+  local msg="🔍 *Último commit en nexo-lab:*\n"
+  msg+="\n"
+  msg+="\`$commit\`\n"
+  msg+="👤 $author | 📅 $date\n"
+  msg+="\n"
+  msg+="📊 $files\n"
+  msg+="\n"
+  msg+="🔗 https://github.com/Mikutabby/nexo-lab/commit/$(git log -1 --format="%H" 2>/dev/null)"
+  
+  send_message "$msg"
+}
+
+case "${1:-}" in
+  --check)
+    echo "📨 Último mensaje: $(get_updates)"
+    ;;
+  --review)
+    review_latest
+    ;;
+  --help|-h)
+    echo "Uso: nexo-telegram [mensaje|--check|--review]"
+    ;;
+  *)
+    [ -z "${1:-}" ] && echo "Uso: nexo-telegram \"mensaje\"" && exit 1
+    send_message "$1"
+    ;;
+esac

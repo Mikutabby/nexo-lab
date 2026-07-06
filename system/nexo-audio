@@ -1,0 +1,2 @@
+#!/bin/bash
+exec bash "$HOME/nexo-lab/nexo-lab/system/nexo-audio-diagnostico.sh" "$@"

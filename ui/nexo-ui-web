@@ -1,0 +1,3 @@
+#!/bin/bash
+cd "$HOME/.local/share/nexo-ui/web"
+exec python3 app.py "$@"
