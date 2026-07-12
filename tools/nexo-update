@@ -12,7 +12,7 @@
 set -euo pipefail
 
 NEXO_VERSION="2.0"
-REPO_URL="https://github.com/Mikutabby/nexo-lab"
+REPO_URL="https://github.com/mikutabby/nexo-lab"
 INSTALL_DIR="$HOME/.local/bin"
 OPENCODE_DIR="$HOME/.opencode"
 TMP_DIR="/tmp/nexo-update-$$"
@@ -45,7 +45,7 @@ done
 check_update() {
   info "Verificando actualizaciones..."
   local remote_ver
-  remote_ver=$(curl -sSL "${REPO_URL}/raw/master/tools/nexo-update" 2>/dev/null | \
+  remote_ver=$(curl -sSL "${REPO_URL}/raw/main/tools/nexo-update" 2>/dev/null | \
     grep "NEXO_VERSION=" | head -1 | cut -d'"' -f2 || echo "")
   if [ -z "$remote_ver" ]; then
     warn "No se pudo verificar versión remota"
@@ -100,35 +100,26 @@ update_file() {
 info "Actualizando scripts del sistema..."
 mkdir -p "$INSTALL_DIR" "$OPENCODE_DIR"
 
-# Tools
-for f in nexo-diary nexo-evaluate nexo-tools nexo-skill nexo-wake nexo-update \
-         nexo-auto-model nexo-model nexo-model-switch nexo-smart-switch; do
-  update_file "$TMP_DIR/tools/$f" "$INSTALL_DIR/$f"
-done
-
-# Memory
-update_file "$TMP_DIR/graph/nexo-graph" "$INSTALL_DIR/nexo-graph"
-update_file "$TMP_DIR/graph/nexo-memory" "$INSTALL_DIR/nexo-memory"
-
-# Backup
+for f in "$TMP_DIR"/core/identity/*.sh; do update_file "$f" "$INSTALL_DIR/$(basename "$f")"; done
+for f in "$TMP_DIR"/core/monitor/*.sh; do update_file "$f" "$INSTALL_DIR/$(basename "$f")"; done
+update_file "$TMP_DIR/core/system/limpiar" "$INSTALL_DIR/limpiar"
+cp -r "$TMP_DIR/core/lib" "$INSTALL_DIR/lib" 2>/dev/null
+update_file "$TMP_DIR/tools/nexo-diary" "$INSTALL_DIR/nexo-diary"
+update_file "$TMP_DIR/tools/nexo-evaluate" "$INSTALL_DIR/nexo-evaluate"
+update_file "$TMP_DIR/tools/nexo-tools" "$INSTALL_DIR/nexo-tools"
+update_file "$TMP_DIR/tools/nexo-skill" "$INSTALL_DIR/nexo-skill"
+update_file "$TMP_DIR/tools/nexo-wake" "$INSTALL_DIR/nexo-wake"
+update_file "$TMP_DIR/tools/nexo-update" "$INSTALL_DIR/nexo-update"
+update_file "$TMP_DIR/tools/nexo-auto-model" "$INSTALL_DIR/nexo-auto-model"
+update_file "$TMP_DIR/tools/nexo-model" "$INSTALL_DIR/nexo-model"
+update_file "$TMP_DIR/tools/nexo-model-switch" "$INSTALL_DIR/nexo-model-switch"
+update_file "$TMP_DIR/tools/nexo-smart-switch" "$INSTALL_DIR/nexo-smart-switch"
+update_file "$TMP_DIR/memory/nexo-graph" "$INSTALL_DIR/nexo-graph"
+update_file "$TMP_DIR/memory/nexo-memory" "$INSTALL_DIR/nexo-memory"
 update_file "$TMP_DIR/backup/nexo-backup.sh" "$INSTALL_DIR/nexo-backup.sh"
 update_file "$TMP_DIR/backup/nexo-restore.sh" "$INSTALL_DIR/nexo-restore.sh"
-
-# System
-update_file "$TMP_DIR/system/limpiar" "$INSTALL_DIR/limpiar"
-update_file "$TMP_DIR/system/check-identity.sh" "$INSTALL_DIR/check-identity.sh"
-update_file "$TMP_DIR/system/temp-monitor.sh" "$INSTALL_DIR/temp-monitor.sh"
-update_file "$TMP_DIR/system/temp-cancel.sh" "$INSTALL_DIR/temp-cancel.sh"
-
-# Voice
 update_file "$TMP_DIR/voice/say.sh" "$OPENCODE_DIR/say.sh"
 update_file "$TMP_DIR/voice/voice.sh" "$OPENCODE_DIR/voice.sh"
-
-# Skills
-if [ -d "$TMP_DIR/skills" ]; then
-  mkdir -p "$HOME/.nexo-skills"
-  cp -r "$TMP_DIR/skills"/* "$HOME/.nexo-skills/" 2>/dev/null || true
-fi
 
 rm -rf "$TMP_DIR"
 

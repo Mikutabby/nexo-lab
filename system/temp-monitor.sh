@@ -2,6 +2,13 @@
 # Monitor de temperatura - avisa por parlantes y apaga si es crítico
 # Cancelar apagado: rm -f /tmp/temp-monitor-cooldown && sudo rtcwake -m disable
 
+NEXO_VERSION="2.0"
+
+case "${1:-}" in
+  --help|-h) head -5 "$0" | grep -E "^# " | sed 's/^# //'; exit 0 ;;
+  --version|-v) echo "Nexo Temp Monitor v${NEXO_VERSION}"; exit 0 ;;
+esac
+
 WARN=75       # Alerta temprana (solo avisa)
 CRIT=80       # Shutdown
 COOLDOWN=480  # 8 minutos
@@ -17,7 +24,7 @@ elif [ -f /sys/class/thermal/thermal_zone0/temp ]; then
 fi
 
 if [ -z "$TEMP" ]; then
-    TEMP=$(sensors 2>/dev/null | grep "Package id 0:" | grep -oP '\+?\d+\.\d+°C' | head -1 | tr -d '+°C' | awk -F. '{print $1}')
+    TEMP=$(sensors 2>/dev/null | grep "Package id 0:" | grep -oP '[+-]?\d+\.\d+°C' | head -1 | tr -d '+°C' | awk -F. '{print $1}')
 fi
 
 [ -z "$TEMP" ] && exit 1
