@@ -246,7 +246,41 @@ Puedo escribir scripts en:
   4. Cache de navegadores (Firefox, Chromium, Chrome)
   5. Papelera
   6. Archivos temporales en /tmp (+7 días)
-  7. Liberar RAM (drop_caches)
+  7. Liberar RAM (drop_caches — usa `echo 1` para no matar cache de inodos)
+
+### Sistema de Auto-reparación (nexo-heal)
+- Script: `~/.local/bin/nexo-heal`
+- Detecta errores en logs de Nexo y busca soluciones conocidas
+- Uso:
+  - `nexo-heal scan` → Escanear logs en busca de errores
+  - `nexo-heal fix` → Intentar arreglar errores conocidos
+  - `nexo-heal learn <error> <fix>` → Enseñar un nuevo fix
+  - `nexo-heal auto` → scan + fix + learn (full cycle)
+  - `nexo-heal watch` → Modo daemon (monitoreo continuo)
+  - `nexo-heal status` → Mostrar estadísticas de salud
+- Integración con nexo-memory: los errores se guardan como `error` y los fixes como `improvement`
+
+### Updater de Nexo (nexo-update)
+- Script: `~/.local/bin/nexo-update`
+- Actualiza Nexo desde el repositorio oficial (git-based)
+- Uso:
+  - `nexo-update` → Actualizar todo
+  - `nexo-update --check` → Verificar si hay actualización
+  - `nexo-update --force` → Reinstalar todo desde cero
+  - `nexo-update --version` → Mostrar versión
+- No requiere sudo — solo actualiza scripts del usuario
+
+### Logging Centralizado
+- Script: `~/.local/bin/lib/log.sh`
+- Funciones: `log_init`, `log_info`, `log_warn`, `log_error`, `log_debug`
+- Uso en scripts:
+  ```bash
+  source ~/.local/bin/lib/log.sh
+  log_init "mi-script"
+  log_info "Operación completada"
+  log_error "Algo falló"
+  ```
+- Todos los logs se guardan en `~/.nexo-memory/log/<componente>.log`
 
 ## 🧠 Sistema de Auto-aprendizaje y Memoria Persistente
 
@@ -505,6 +539,9 @@ Resumidor diario de interacciones usando Ollama + knowledge graph.
 - **`~/.local/bin/nexo-diary`** — 📔 diary summariser (resumen diario con Ollama)
 - **`~/.local/bin/nexo-evaluate`** — ✅ evaluator de tareas (verifica completitud)
 - **`~/.local/bin/nexo-wake`** — 🔊 wake word detection (escucha "nexo")
+- **`~/.local/bin/nexo-heal`** — 🩺 sistema de auto-reparación (detecta y arregla errores)
+- **`~/.local/bin/nexo-update`** — 🚀 updater de Nexo (git-based, --check, --force)
+- **`~/.local/bin/lib/log.sh`** — 📝 logging centralizado (log_info, log_warn, log_error)
 - **`~/.nexo-memory/memory.json`** — archivo de memoria persistente (JSON plano, legado)
 - **`~/.nexo-memory/graph.db`** — knowledge graph (SQLite + embeddings, reemplazo moderno)
 
