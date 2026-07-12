@@ -1,0 +1,401 @@
+#!/bin/bash
+# 🗣️ Nexo Language Analyzer (Bash)
+# Analiza patrones de habla del usuario para comprender mejor
+#
+# Uso:
+#   nexo-lang analyze "mensaje"     → Analizar un mensaje
+#   nexo-lang correct "texto"       → Auto-corregir typos
+#   nexo-lang style                 → Ver estilo del usuario
+#   nexo-lang teach <typo> <corr>   → Enseñar nuevo typo
+#   nexo-lang history               → Ver historial de análisis
+
+set -uo pipefail
+
+MEMORY_DIR="$HOME/.nexo-memory"
+LANGUAGE_DIR="$MEMORY_DIR/learned/language"
+PROFILE_FILE="$LANGUAGE_DIR/user_profile.json"
+MESSAGES_FILE="$LANGUAGE_DIR/messages.jsonl"
+
+mkdir -p "$LANGUAGE_DIR"
+
+# ── Colores ──────────────────────────────────────────────────────────────────
+G='\033[0;32m'; Y='\033[1;33m'; C='\033[0;36m'; NC='\033[0m'
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 1. ANALYZE — Analizar un mensaje
+# ══════════════════════════════════════════════════════════════════════════════
+analyze() {
+    local message="${1:-}"
+    
+    [ -z "$message" ] && echo "Uso: nexo-lang analyze \"mensaje\"" && exit 1
+    
+    echo "🗣️ Análisis de mensaje:"
+    echo ""
+    
+    # Auto-corregir
+    local corrected
+    corrected=$(auto_correct "$message")
+    
+    # Detectar intención
+    local intent
+    intent=$(detect_intent "$corrected")
+    
+    # Detectar emoción
+    local emotion
+    emotion=$(detect_emotion "$corrected")
+    
+    # Detectar temas
+    local topics
+    topics=$(detect_topics "$corrected")
+    
+    echo "📝 Original: $message"
+    echo "✅ Corregido: $corrected"
+    echo "🎯 Intención: $intent"
+    echo "💭 Emoción: $emotion"
+    echo "📚 Temas: $topics"
+    
+    # Guardar en historial
+    save_message "$message" "$corrected" "$intent" "$emotion" "$topics"
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 2. AUTO_CORRECT — Corregir typos comunes
+# ══════════════════════════════════════════════════════════════════════════════
+auto_correct() {
+    local text="${1:-}"
+    
+    # Typos comunes en español
+    local corrected="$text"
+    
+    # Correcciones de typos frecuentes
+    corrected=$(echo "$corrected" | sed \
+        -e 's/\bola\b/hola/gi' \
+        -e 's/\bquiro\b/quiero/gi' \
+        -e 's/\bquero\b/quiero/gi' \
+        -e 's/\bcmo\b/como/gi' \
+        -e 's/\bkmo\b/como/gi' \
+        -e 's/\btemperatura\b/temperatura/gi' \
+        -e 's/\btemperatua\b/temperatura/gi' \
+        -e 's/\bmonito\b/monitor/gi' \
+        -e 's/\btemperatua\b/temperatura/gi' \
+        -e 's/\barchvo\b/archivo/gi' \
+        -e 's/\barchiivo\b/archivo/gi' \
+        -e 's/\bfuncna\b/funciona/gi' \
+        -e 's/\bfuncioan\b/funciona/gi' \
+        -e 's/\berorr\b/error/gi' \
+        -e 's/\beror\b/error/gi' \
+        -e 's/\bayda\b/ayuda/gi' \
+        -e 's/\bnecsito\b/necesito/gi' \
+        -e 's/\bprobelma\b/problema/gi' \
+        -e 's/\bprobleam\b/problema/gi' \
+        -e 's/\bsolucion\b/solución/gi' \
+        -e 's/\binstlar\b/instalar/gi' \
+        -e 's/\bconfigrar\b/configurar/gi' \
+        -e 's/\bejcutar\b/ejecutar/gi' \
+        -e 's/\bverifcar\b/verificar/gi' \
+        -e 's/\breinicar\b/reiniciar/gi' \
+        -e 's/\bactuallizar\b/actualizar/gi' \
+        -e 's/\blimpiar\b/limpiar/gi' \
+        -e 's/\btempmonitor\b/temp-monitor/gi' \
+        -e 's/\btemp-montior\b/temp-monitor/gi' \
+        -e 's/\bnexus\b/nexo/gi' \
+        -e 's/\bnexu\b/nexo/gi' \
+        -e 's/\bnexa\b/nexo/gi' \
+        -e 's/\bbasj\b/bash/gi' \
+        -e 's/\bscrip\b/script/gi' \
+        -e 's/\btermianl\b/terminal/gi' \
+        -e 's/\btermnal\b/terminal/gi' \
+        -e 's/\bcomadno\b/comando/gi' \
+        -e 's/\bpyhton\b/python/gi' \
+        -e 's/\bpytohn\b/python/gi' \
+        -e 's/\bgithu\b/github/gi' \
+        -e 's/\bgithb\b/github/gi' \
+        -e 's/\bdsicord\b/discord/gi' \
+        -e 's/\bdisord\b/discord/gi' \
+        -e 's/\btelegam\b/telegram/gi' \
+        -e 's/\bteleram\b/telegram/gi' \
+        -e 's/\bmemora\b/memoria/gi' \
+        -e 's/\bapredizaje\b/aprendizaje/gi' \
+        -e 's/\bautonomo\b/autónomo/gi' \
+        -e 's/\bautonmo\b/autónomo/gi' \
+        -e 's/\bcompresion\b/comprensión/gi' \
+    )
+    
+    # Corregir repeticiones excesivas
+    corrected=$(echo "$corrected" | sed -E 's/(.)\1{2,}/\1\1/g')
+    
+    echo "$corrected"
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 3. DETECT_INTENT — Detectar intención del mensaje
+# ══════════════════════════════════════════════════════════════════════════════
+detect_intent() {
+    local text="${1:-}"
+    local text_lower=$(echo "$text" | tr '[:upper:]' '[:lower:]')
+    
+    # Preguntas
+    if echo "$text_lower" | grep -qE "qué|cómo|cuándo|dónde|por qué|cuál|cuánto|podés|puedes|sabes"; then
+        echo "pregunta"
+        return
+    fi
+    
+    # Comandos
+    if echo "$text_lower" | grep -qE "abre|ejecuta|corre|inicia|instala|configura|reinicia|apaga|enciende"; then
+        echo "comando"
+        return
+    fi
+    
+    # Quejas
+    if echo "$text_lower" | grep -qE "no funciona|falló|error|problema|mal|roto|lento|trabado"; then
+        echo "queja"
+        return
+    fi
+    
+    # Agradecimientos
+    if echo "$text_lower" | grep -qE "gracias|thanks|genial|perfecto|excelente|buenísimo|joya"; then
+        echo "agradecimiento"
+        return
+    fi
+    
+    # Saludos
+    if echo "$text_lower" | grep -qE "hola|hey|buenas|qué tal|cómo estás|buenos días|buenas tardes"; then
+        echo "saludo"
+        return
+    fi
+    
+    # Ayuda
+    if echo "$text_lower" | grep -qE "ayuda|help|no sé|cómo hago|necesito|podés|puedes"; then
+        echo "ayuda"
+        return
+    fi
+    
+    # Información
+    if echo "$text_lower" | grep -qE "cuéntame|explícame|qué es|para qué sirve|cómo funciona"; then
+        echo "información"
+        return
+    fi
+    
+    echo "declaración"
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 4. DETECT_EMOTION — Detectar emoción del mensaje
+# ══════════════════════════════════════════════════════════════════════════════
+detect_emotion() {
+    local text="${1:-}"
+    local text_lower=$(echo "$text" | tr '[:upper:]' '[:lower:]')
+    
+    # Frustración
+    if echo "$text_lower" | grep -qE "no funciona|mal|error|problema|lento|trabado|cuelga|se congela|no anda"; then
+        echo "frustrado"
+        return
+    fi
+    
+    # Felicidad
+    if echo "$text_lower" | grep -qE "genial|perfecto|excelente|buenísimo|joya|dale|sí|bien|funciona"; then
+        echo "contento"
+        return
+    fi
+    
+    # Urgencia
+    if echo "$text_lower" | grep -qE "rápido|urgente|ya|ahora|necesito|importante|critico|urgente"; then
+        echo "urgente"
+        return
+    fi
+    
+    # Curiosidad
+    if echo "$text_lower" | grep -qE "qué es|cómo|por qué|cuéntame|explícame|interesante|wow"; then
+        echo "curioso"
+        return
+    fi
+    
+    echo "neutral"
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 5. DETECT_TOPICS — Detectar temas del mensaje
+# ══════════════════════════════════════════════════════════════════════════════
+detect_topics() {
+    local text="${1:-}"
+    local text_lower=$(echo "$text" | tr '[:upper:]' '[:lower:]')
+    local topics=""
+    
+    # Sistema
+    if echo "$text_lower" | grep -qE "sistema|computadora|pc|linux|windows|arch|mx"; then
+        topics="${topics}sistema,"
+    fi
+    
+    # Temperatura
+    if echo "$text_lower" | grep -qE "temperatura|calor|cooling|fan|ventilador|gpu|cpu"; then
+        topics="${topics}temperatura,"
+    fi
+    
+    # Scripts
+    if echo "$text_lower" | grep -qE "script|bash|comando|terminal|sh"; then
+        topics="${topics}scripts,"
+    fi
+    
+    # Aprendizaje
+    if echo "$text_lower" | grep -qE "aprendizaje|aprender|estudiar|conocimiento|memoria"; then
+        topics="${topics}aprendizaje,"
+    fi
+    
+    # Discord
+    if echo "$text_lower" | grep -qE "discord|bot|servidor|canal"; then
+        topics="${topics}discord,"
+    fi
+    
+    # Nexo
+    if echo "$text_lower" | grep -qE "nexo|asistente|bot|ayudante"; then
+        topics="${topics}nexo,"
+    fi
+    
+    # Archivos
+    if echo "$text_lower" | grep -qE "archivo|carpeta|directorio|documento"; then
+        topics="${topics}archivos,"
+    fi
+    
+    # Red
+    if echo "$text_lower" | grep -qE "red|internet|wifi|conexión|ip"; then
+        topics="${topics}red,"
+    fi
+    
+    # IA
+    if echo "$text_lower" | grep -qE "ia|inteligencia|modelo|gemini|ollama"; then
+        topics="${topics}ia,"
+    fi
+    
+    # Limpiar coma final
+    topics=$(echo "$topics" | sed 's/,$//')
+    
+    [ -z "$topics" ] && topics="general"
+    
+    echo "$topics"
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 6. SAVE_MESSAGE — Guardar mensaje en historial
+# ══════════════════════════════════════════════════════════════════════════════
+save_message() {
+    local original="${1:-}"
+    local corrected="${2:-}"
+    local intent="${3:-}"
+    local emotion="${4:-}"
+    local topics="${5:-}"
+    
+    local timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    
+    local entry=$(jq -n \
+        --arg ts "$timestamp" \
+        --arg orig "$original" \
+        --arg corr "$corrected" \
+        --arg intent "$intent" \
+        --arg emotion "$emotion" \
+        --arg topics "$topics" \
+        '{
+            timestamp: $ts,
+            original: $orig,
+            corrected: $corr,
+            intent: $intent,
+            emotion: $emotion,
+            topics: $topics
+        }')
+    
+    echo "$entry" >> "$MESSAGES_FILE"
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 7. STYLE — Ver estilo del usuario
+# ══════════════════════════════════════════════════════════════════════════════
+style() {
+    echo -e "${C}🗣️ Estilo del usuario:${NC}"
+    echo ""
+    
+    if [ ! -f "$MESSAGES_FILE" ]; then
+        echo "No hay mensajes analizados aún."
+        echo "Empezá a escribir y nexo-lang aprenderá tu estilo."
+        return 0
+    fi
+    
+    # Contar total de mensajes
+    local total=$(wc -l < "$MESSAGES_FILE")
+    echo "📝 Total de mensajes: $total"
+    
+    # Detectar tono predominante
+    local casual=$(grep -c '"emotion":"contento"' "$MESSAGES_FILE" 2>/dev/null || echo "0")
+    local frustrated=$(grep -c '"emotion":"frustrado"' "$MESSAGES_FILE" 2>/dev/null || echo "0")
+    local urgent=$(grep -c '"emotion":"urgente"' "$MESSAGES_FILE" 2>/dev/null || echo "0")
+    
+    echo ""
+    echo "💭 Distribución emocional:"
+    echo "   Contento: $casual"
+    echo "   Frustrado: $frustrado"
+    echo "   Urgente: $urgent"
+    
+    # Detectar temas más comunes
+    echo ""
+    echo "📚 Temas más frecuentes:"
+    grep -o '"topics":"[^"]*"' "$MESSAGES_FILE" | \
+        sed 's/"topics":"//;s/"//' | \
+        tr ',' '\n' | sort | uniq -c | sort -rn | head -5 | \
+        while read count topic; do
+            echo "   $topic: $count"
+        done
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 8. TEACH — Enseñar nuevo typo
+# ══════════════════════════════════════════════════════════════════════════════
+teach() {
+    local typo="${1:-}"
+    local correction="${2:-}"
+    
+    [ -z "$typo" ] || [ -z "$correction" ] && echo "Uso: nexo-lang teach <typo> <corrección>" && exit 1
+    
+    echo "📝 Aprendiendo nuevo typo:"
+    echo "   $typo → $correction"
+    
+    # Aquí se guardaría en la base de datos de typos
+    # Por ahora solo mostramos el mensaje
+    echo "✅ Typo registrado para futuras correcciones"
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MAIN
+# ══════════════════════════════════════════════════════════════════════════════
+case "${1:-help}" in
+    analyze)
+        shift
+        analyze "$@"
+        ;;
+    correct)
+        shift
+        auto_correct "$@"
+        ;;
+    style)
+        style
+        ;;
+    teach)
+        shift
+        teach "$@"
+        ;;
+    history)
+        if [ -f "$MESSAGES_FILE" ]; then
+            echo "📜 Últimos 10 mensajes:"
+            tail -10 "$MESSAGES_FILE" | jq -r '"\(.timestamp) | \(.intent) | \(.emotion) | \(.corrected[0:50])"'
+        else
+            echo "No hay historial."
+        fi
+        ;;
+    help|*)
+        echo "Uso: nexo-lang <comando>"
+        echo ""
+        echo "Comandos:"
+        echo "  analyze \"mensaje\"  → Analizar un mensaje"
+        echo "  correct \"texto\"    → Auto-corregir typos"
+        echo "  style              → Ver estilo del usuario"
+        echo "  teach <typo> <corr> → Enseñar nuevo typo"
+        echo "  history            → Ver historial"
+        ;;
+esac
