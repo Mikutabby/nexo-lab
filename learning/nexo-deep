@@ -1,0 +1,418 @@
+#!/bin/bash
+# 🔬 Nexo Deep Learning Engine
+# Análisis causal profundo — no solo QUÉ pasó, sino POR QUÉ
+#
+# Uso:
+#   nexo-deep analyze <file>     → Análisis causal profundo de un error
+#   nexo-deep pattern <type>     → Buscar patrones causales
+#   nexo-deep predict <situation> → Predecir qué podría fallar
+#   nexo-deep simulate <scenario> → Simular escenario mental
+#   nexo-deep explain            → Explicar lo que aprendí
+
+set -uo pipefail
+
+MEMORY_DIR="$HOME/.nexo-memory"
+DEEP_DIR="$MEMORY_DIR/learned/deep"
+CAUSAL_GRAPH="$DEEP_DIR/causal_graph.json"
+KNOWLEDGE_BASE="$DEEP_DIR/knowledge_base.json"
+PREDICTIONS="$DEEP_DIR/predictions.jsonl"
+
+mkdir -p "$DEEP_DIR"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 1. ANALYZE — Análisis causal profundo de un error
+# ══════════════════════════════════════════════════════════════════════════════
+analyze() {
+    local source="${1:-}"
+    local error_content="${2:-}"
+    
+    [ -z "$source" ] && echo "Uso: nexo-deep analyze <archivo_error> [contenido_error]" && exit 1
+    
+    echo "🔬 Análisis causal profundo de: $source"
+    echo ""
+    
+    # Leer contenido
+    local content=""
+    if [ -f "$source" ]; then
+        content=$(cat "$source")
+    else
+        content="$error_content"
+    fi
+    
+    # ── Nivel 1: Error Sintáctico ──
+    local syntax_issues=0
+    if echo "$content" | grep -qiE "syntax|unexpected|parse|indent"; then
+        ((syntax_issues++))
+        echo "  🔴 Error sintáctico detectado"
+        # Analizar qué tipo
+        if echo "$content" | grep -qi "indent"; then
+            echo "     → Problema de indentación"
+        elif echo "$content" | grep -qi "unexpected"; then
+            echo "     → Token inesperado"
+        elif echo "$content" | grep -qi "unterminated"; then
+            echo "     → String/sentencia sin cerrar"
+        fi
+    fi
+    
+    # ── Nivel 2: Error Semántico ──
+    local semantic_issues=0
+    if echo "$content" | grep -qiE "undefined|not defined|not found|does not exist"; then
+        ((semantic_issues++))
+        echo "  🟡 Error semántico detectado"
+        if echo "$content" | grep -qi "undefined variable"; then
+            echo "     → Variable no definida (uso antes de declaración?)"
+        elif echo "$content" | grep -qi "not found"; then
+            echo "     → Referencia a algo que no existe"
+        fi
+    fi
+    
+    # ── Nivel 3: Error de Runtime ──
+    local runtime_issues=0
+    if echo "$content" | grep -qiE "permission|denied|access|timeout|connection|refused"; then
+        ((runtime_issues++))
+        echo "  🟠 Error de runtime detectado"
+        if echo "$content" | grep -qi "permission\|denied"; then
+            echo "     → Falta permiso (verificar sudoers, ownership)"
+        elif echo "$content" | grep -qi "timeout\|connection"; then
+            echo "     → Problema de red/conectividad"
+        fi
+    fi
+    
+    # ── Nivel 4: Error Lógico ──
+    local logic_issues=0
+    if echo "$content" | grep -qiE "infinite loop\|stack overflow\|memory\|oom"; then
+        ((logic_issues++))
+        echo "  🔴 Error lógico detectado"
+        if echo "$content" | grep -qi "infinite\|loop"; then
+            echo "     → Bucle infinito (falta condición de salida?)"
+        elif echo "$content" | grep -qi "memory\|oom"; then
+            echo "     → Fuga de memoria (objeto no se libera?)"
+        fi
+    fi
+    
+    # ── Calcular severidad ──
+    local total=$((syntax_issues + semantic_issues + runtime_issues + logic_issues))
+    local severity="baja"
+    if [ $total -ge 3 ]; then severity="crítica"
+    elif [ $total -ge 2 ]; then severity="alta"
+    elif [ $total -ge 1 ]; then severity="media"
+    fi
+    
+    echo ""
+    echo "📊 Resumen del análisis:"
+    echo "   Sintáctico: $syntax_issues"
+    echo "   Semántico: $semantic_issues"
+    echo "   Runtime: $runtime_issues"
+    echo "   Lógico: $logic_issues"
+    echo "   Severidad: $severity"
+    
+    # ── Generar solución ──
+    echo ""
+    echo "💡 Posibles soluciones:"
+    
+    if [ $syntax_issues -gt 0 ]; then
+        echo "   → Revisar sintaxis, indentación, paréntesis/corchetes"
+    fi
+    if [ $semantic_issues -gt 0 ]; then
+        echo "   → Verificar que variables/funciones existan antes de usar"
+    fi
+    if [ $runtime_issues -gt 0 ]; then
+        echo "   → Verificar permisos, conectividad, recursos del sistema"
+    fi
+    if [ $logic_issues -gt 0 ]; then
+        echo "   → Revisar lógica del algoritmo, condiciones de salida"
+    fi
+    
+    # ── Guardar en grafo causal ──
+    local entry=$(jq -n \
+        --arg src "$source" \
+        --arg sev "$severity" \
+        --argjson syn "$syntax_issues" \
+        --argjson sem "$semantic_issues" \
+        --argjson run "$runtime_issues" \
+        --argjson log "$logic_issues" \
+        --arg content "${content:0:500}" \
+        '{
+            source: $src,
+            severity: $sev,
+            analysis: {
+                syntax: $syn,
+                semantic: $sem,
+                runtime: $run,
+                logic: $log
+            },
+            content_preview: $content,
+            timestamp: now | todate,
+            resolved: false
+        }')
+    
+    # Agregar al grafo causal
+    local graph="[]"
+    if [ -f "$CAUSAL_GRAPH" ]; then
+        graph=$(cat "$CAUSAL_GRAPH")
+    fi
+    graph=$(echo "$graph" | jq --argjson entry "$entry" '. + [$entry]')
+    echo "$graph" | jq . > "$CAUSAL_GRAPH"
+    
+    echo ""
+    echo "✅ Análisis guardado en grafo causal"
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 2. PATTERN — Buscar patrones causales recurrentes
+# ══════════════════════════════════════════════════════════════════════════════
+pattern() {
+    local filter="${1:-all}"
+    
+    echo "🔍 Buscando patrones causales..."
+    echo ""
+    
+    if [ ! -f "$CAUSAL_GRAPH" ]; then
+        echo "No hay análisis causales registrados."
+        return 0
+    fi
+    
+    # Contar por tipo de error
+    local total=$(jq 'length' "$CAUSAL_GRAPH")
+    local syntax=$(jq '[.[] | select(.analysis.syntax > 0)] | length' "$CAUSAL_GRAPH")
+    local semantic=$(jq '[.[] | select(.analysis.semantic > 0)] | length' "$CAUSAL_GRAPH")
+    local runtime=$(jq '[.[] | select(.analysis.runtime > 0)] | length' "$CAUSAL_GRAPH")
+    local logic=$(jq '[.[] | select(.analysis.logic > 0)] | length' "$CAUSAL_GRAPH")
+    
+    echo "📊 Distribución de errores (total: $total):"
+    echo "   Sintáctico: $syntax ($(( syntax * 100 / (total + 1) ))%)"
+    echo "   Semántico: $semantic ($(( semantic * 100 / (total + 1) ))%)"
+    echo "   Runtime: $runtime ($(( runtime * 100 / (total + 1) ))%)"
+    echo "   Lógico: $logic ($(( logic * 100 / (total + 1) ))%)"
+    echo ""
+    
+    # Detectar patrón dominante
+    local max_type=""
+    local max_count=0
+    
+    if [ $syntax -gt $max_count ]; then max_count=$syntax; max_type="sintáctico"; fi
+    if [ $semantic -gt $max_count ]; then max_count=$semantic; max_type="semántico"; fi
+    if [ $runtime -gt $max_count ]; then max_count=$runtime; max_type="runtime"; fi
+    if [ $logic -gt $max_count ]; then max_count=$logic; max_type="lógico"; fi
+    
+    if [ -n "$max_type" ]; then
+        echo "🎯 Patrón dominante: $max_type ($max_count ocurrencias)"
+        echo ""
+        echo "💡 Recomendación:"
+        case $max_type in
+            sintáctico)
+                echo "   Tuve muchos errores de sintaxis. Debería:"
+                echo "   - Usar un linter automáticamente antes de ejecutar"
+                echo "   - Verificar indentación siempre"
+                echo "   - Usar paréntesis/paréntesis consistentes"
+                ;;
+            semántico)
+                echo "   Tuve muchos errores semánticos. Debería:"
+                echo "   - Verificar que variables existan antes de usarlas"
+                echo "   - Usar 'set -u' en bash para detectar variables no definidas"
+                echo "   - Revisar imports antes de ejecutar"
+                ;;
+            runtime)
+                echo "   Tuve muchos errores de runtime. Debería:"
+                echo "   - Verificar permisos antes de intentar"
+                echo "   - Probar conectividad antes de conexiones"
+                echo "   - Manejar timeouts gracefully"
+                ;;
+            lógico)
+                echo "   Tuve muchos errores lógicos. Debería:"
+                echo "   - Agregar assertions en código crítico"
+                echo "   - Probar con casos extremos"
+                echo "   - Revisar condiciones de salida en bucles"
+                ;;
+        esac
+    fi
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 3. PREDICT — Predecir qué podría fallar
+# ══════════════════════════════════════════════════════════════════════════════
+predict() {
+    local scenario="${1:-}"
+    
+    [ -z "$scenario" ] && echo "Uso: nexo-deep predict <escenario>" && exit 1
+    
+    echo "🔮 Predicción para: $scenario"
+    echo ""
+    
+    # Cargar grafo causal
+    local graph="[]"
+    if [ -f "$CAUSAL_GRAPH" ]; then
+        graph=$(cat "$CAUSAL_GRAPH")
+    fi
+    
+    # Buscar errores similares en historial
+    local similar=$(echo "$graph" | jq -r --arg s "$scenario" '
+        [.[] | select(
+            (.content_preview | ascii_downcase | contains($s | ascii_downcase)) or
+            (.source | ascii_downcase | contains($s | ascii_downcase))
+        )] | length
+    ')
+    
+    echo "📊 Errores similares en historial: $similar"
+    echo ""
+    
+    if [ "$similar" -gt 3 ]; then
+        echo "⚠️  RIESGO ALTO: Hay múltiples errores similares previos"
+        echo ""
+        echo "Posibles causas basadas en historial:"
+        jq -r --arg s "$scenario" '
+            [.[] | select(
+                (.content_preview | ascii_downcase | contains($s | ascii_downcase)) or
+                (.source | ascii_downcase | contains($s | ascii_downcase))
+            )] | .[0:3][] |
+            "  • \(.source): \(.analysis | keys[] | select(. != "timestamp") | .)"
+        ' "$CAUSAL_GRAPH" 2>/dev/null
+    elif [ "$similar" -gt 0 ]; then
+        echo "⚡ RIESGO MEDIO: Hay algunos errores similares"
+        echo "  Revisar antes de proceder"
+    else
+        echo "✅ RIESGO BAJO: No hay errores similares conocidos"
+        echo "  Proceder con precaución normal"
+    fi
+    
+    # Registrar predicción
+    local prediction=$(jq -n \
+        --arg scenario "$scenario" \
+        --argjson similar "$similar" \
+        --arg risk "$(if [ "$similar" -gt 3 ]; then echo "high"; elif [ "$similar" -gt 0 ]; then echo "medium"; else echo "low"; fi)" \
+        '{
+            scenario: $scenario,
+            similar_errors: $similar,
+            risk_level: $risk,
+            timestamp: now | todate,
+            actual_outcome: null
+        }')
+    
+    echo "$prediction" >> "$PREDICTIONS"
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 4. SIMULATE — Simular escenario mental
+# ══════════════════════════════════════════════════════════════════════════════
+simulate() {
+    local scenario="${1:-}"
+    
+    [ -z "$scenario" ] && echo "Uso: nexo-deep simulate <escenario>" && exit 1
+    
+    echo "🧪 Simulación mental: $scenario"
+    echo ""
+    echo "Pensando paso a paso..."
+    echo ""
+    
+    # Paso 1: Identificar componentes
+    echo "📋 Componentes involucrados:"
+    echo "  • [Identificar archivos/programas/usuarios]"
+    echo "  • [Identificar dependencias]"
+    echo "  • [Identificar puntos de fallo]"
+    echo ""
+    
+    # Paso 2: Secuencia de eventos
+    echo "🔄 Secuencia probable:"
+    echo "  1. [Acción inicial]"
+    echo "  2. [Respuesta del sistema]"
+    echo "  3. [Posible resultado]"
+    echo ""
+    
+    # Paso 3: Puntos de fallo
+    echo "⚠️  Puntos de fallo potenciales:"
+    echo "  • [Permiso insuficiente]"
+    echo "  • [Archivo no encontrado]"
+    echo "  • [Conexión fallida]"
+    echo "  • [Timeout]"
+    echo ""
+    
+    # Paso 4: Plan alternativo
+    echo "🔄 Plan B:"
+    echo "  • [Alternativa si falla]"
+    echo "  • [Rollback]"
+    echo ""
+    
+    echo "💡 Simulación completada. La realidad puede diferir."
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 5. EXPLAIN — Explicar lo que aprendí
+# ══════════════════════════════════════════════════════════════════════════════
+explain() {
+    echo "📖 Lo que he aprendido:"
+    echo ""
+    
+    # Del grafo causal
+    if [ -f "$CAUSAL_GRAPH" ]; then
+        local total=$(jq 'length' "$CAUSAL_GRAPH")
+        echo "📊 De $total análisis causales:"
+        echo ""
+        
+        # Principios aprendidos
+        echo "🔧 Principios que descubrí:"
+        echo ""
+        
+        local syntax=$(jq '[.[] | select(.analysis.syntax > 0)] | length' "$CAUSAL_GRAPH")
+        local semantic=$(jq '[.[] | select(.analysis.semantic > 0)] | length' "$CAUSAL_GRAPH")
+        local runtime=$(jq '[.[] | select(.analysis.runtime > 0)] | length' "$CAUSAL_GRAPH")
+        local logic=$(jq '[.[] | select(.analysis.logic > 0)] | length' "$CAUSAL_GRAPH")
+        
+        [ $syntax -gt 0 ] && echo "  📝 Errores de sintaxis: Revisar siempre la estructura del código primero"
+        [ $semantic -gt 0 ] && echo "  🔍 Errores semánticos: Verificar que todo exista antes de usarlo"
+        [ $runtime -gt 0 ] && echo "  ⚡ Errores de runtime: Prepararse para el entorno (permisos, red)"
+        [ $logic -gt 0 ] && echo "  🧠 Errores lógicos: Pensar en casos extremos y condiciones de salida"
+    fi
+    
+    # De predicciones
+    if [ -f "$PREDICTIONS" ]; then
+        local pred_count=$(wc -l < "$PREDICTIONS")
+        local accurate=$(grep -c '"actual_outcome":"correct"' "$PREDICTIONS" 2>/dev/null || echo "0")
+        
+        if [ $pred_count -gt 0 ]; then
+            echo ""
+            echo "🔮 De mis predicciones ($pred_count total):"
+            echo "  Precisión: $(( accurate * 100 / pred_count ))%"
+        fi
+    fi
+    
+    echo ""
+    echo "🎓 Nivel de aprendizaje: En progreso"
+    echo "   Cada error es una oportunidad de aprender."
+    echo "   Cada éxito confirma que algo funciona."
+    echo "   La comprensión viene con la práctica."
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MAIN
+# ══════════════════════════════════════════════════════════════════════════════
+case "${1:-help}" in
+    analyze)
+        shift
+        analyze "$@"
+        ;;
+    pattern)
+        shift
+        pattern "$@"
+        ;;
+    predict)
+        shift
+        predict "$@"
+        ;;
+    simulate)
+        shift
+        simulate "$@"
+        ;;
+    explain)
+        explain
+        ;;
+    help|*)
+        echo "Uso: nexo-deep <comando>"
+        echo ""
+        echo "Comandos:"
+        echo "  analyze <file>       → Análisis causal profundo"
+        echo "  pattern [type]       → Buscar patrones causales"
+        echo "  predict <scenario>   → Predecir qué podría fallar"
+        echo "  simulate <scenario>  → Simular escenario mental"
+        echo "  explain              → Explicar lo que aprendí"
+        ;;
+esac
