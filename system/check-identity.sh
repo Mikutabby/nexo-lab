@@ -1,41 +1,34 @@
 #!/bin/bash
-# check-identity.sh - Verifica quién está frente a la PC usando reconocimiento facial
-# Almacena el resultado en /tmp/opencode-identity.json
-# Uso: check-identity.sh  -> imprime "miku", "unknown" o "nobody"
+# ============================================================================
+# check-identity.sh — Wrapper para check-identity.py
+# ============================================================================
+# Wrapper en bash que mantiene compatibilidad con el script original
+# mientras delega la lógica a la versión en Python.
+#
+# Uso:
+#   check-identity.sh              → verificar identidad
+#   check-identity.sh --help       → ayuda
+# ============================================================================
 
-IDENTITY_FILE="/tmp/opencode-identity.json"
-SCRIPT_DIR="$HOME/.local/bin"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON_SCRIPT="$SCRIPT_DIR/check-identity.py"
 
-# Ejecutar reconocimiento facial
-RESULT=$(python3 "$SCRIPT_DIR/face-recognize.py" whoami 2>&1)
-EXIT_CODE=$?
+# Activar venv si existe
+if [ -f "$HOME/.nexo-venv/bin/activate" ]; then
+    . "$HOME/.nexo-venv/bin/activate"
+fi
 
-# La primera línea del output es el estado: "miku", "unknown" o "no_face"
-FIRST_LINE=$(echo "$RESULT" | head -1)
+# Verificar que Python está disponible
+if ! command -v python3 &> /dev/null; then
+    echo "Error: python3 no encontrado" >&2
+    exit 1
+fi
 
-case "$FIRST_LINE" in
-    miku)
-        IDENTITY="miku"
-        echo "miku"
-        ;;
-    unknown)
-        IDENTITY="unknown"
-        echo "unknown"
-        ;;
-    no_face)
-        IDENTITY="nobody"
-        echo "nobody"
-        ;;
-    *)
-        # Fallback: si por alguna razón no se puede determinar
-        IDENTITY="unknown"
-        echo "unknown"
-        ;;
-esac
+# Verificar que el script Python existe
+if [[ ! -f "$PYTHON_SCRIPT" ]]; then
+    echo "Error: check-identity.py no encontrado en $PYTHON_SCRIPT" >&2
+    exit 1
+fi
 
-# Guardar identidad con timestamp
-cat > "$IDENTITY_FILE" <<EOF
-{"identity":"$IDENTITY","timestamp":$(date +%s)}
-EOF
-
-exit 0
+# Ejecutar el script Python con todos los argumentos
+exec python3 "$PYTHON_SCRIPT" "$@"
