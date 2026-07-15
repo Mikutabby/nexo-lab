@@ -1,2 +1,4 @@
-#!/bin/bash
-exec conky -c "$HOME/.local/share/nexo-ui/conky/nexo-widget.conf"
+#!/usr/bin/env python3
+"""Wrapper: exec conky widget"""
+import os, sys
+os.execvp("conky", ["conky", "-c", os.path.expanduser("~/.local/share/nexo-ui/conky/nexo-widget.conf")] + sys.argv[1:])

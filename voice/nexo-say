@@ -1,14 +1,36 @@
-#!/bin/bash
-# nexo-say - Habla con TTS y anima la cara si está abierta
-# Wrapper que detecta si nexo-face está corriendo y sincroniza
+#!/usr/bin/env python3
+"""
+nexo-say — Wrapper TTS que detecta si nexo-face está corriendo
+"""
+import os
+import sys
+import subprocess
 
-STATE_FILE="/tmp/nexo-face-state.json"
-FACE_PID=$(pgrep -f "python3 -m http.server 7072" 2>/dev/null)
+STATE_FILE = "/tmp/nexo-face-state.json"
 
-# Si la cara está abierta, usar nexo-face-say
-if [ -n "$FACE_PID" ]; then
-    exec bash ~/.local/bin/nexo-face-say "$@"
-else
-    # Si no, solo TTS normal
-    exec bash ~/.opencode/say.sh "$@"
-fi
+def main():
+    # Verificar si nexo-face está corriendo
+    face_running = False
+    try:
+        result = subprocess.run(["pgrep", "-f", "python3 -m http.server 7072"],
+                              capture_output=True)
+        face_running = result.returncode == 0
+    except Exception:
+        pass
+    
+    if face_running:
+        # Usar nexo-face-say
+        face_say = os.path.expanduser("~/.local/bin/nexo-face-say")
+        if os.path.exists(face_say):
+            os.execvp("bash", ["bash", face_say] + sys.argv[1:])
+    
+    # TTS normal
+    say_script = os.path.expanduser("~/nexo-lab/nexo-lab/voice/say.sh")
+    if os.path.exists(say_script):
+        os.execvp("bash", ["bash", say_script] + sys.argv[1:])
+    else:
+        print("Error: say.sh no encontrado", file=sys.stderr)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

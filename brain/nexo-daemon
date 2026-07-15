@@ -1,2 +1,4 @@
-#!/bin/bash
-exec bash "$HOME/nexo-lab/nexo-lab/brain/nexo-daemon.sh" "$@"
+#!/usr/bin/env python3
+"""Wrapper: exec brain/nexo-daemon.py"""
+import os, sys
+os.execvp("python3", ["python3", os.path.expanduser("~/nexo-lab/nexo-lab/brain/nexo-daemon.py")] + sys.argv[1:])
