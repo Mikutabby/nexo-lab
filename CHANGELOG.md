@@ -32,9 +32,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### In Progress
+- Migrar say.sh (TTS) a Python
+- Migrar nexo-backup.sh/restore a Python
 - Docker support
 - Enhanced testing suite
-- More Python migrations
+
+## [1.2.0] - 2026-07-14
+
+### Added
+- **voice.py v1.0** — Complete STT rewrite in Python with:
+  - Multiple recording methods (parec, rec, arecord)
+  - Voice Activity Detection (webrtcvad)
+  - Echo detection
+  - Multi-language support
+  - Auto clipboard copy
+- **Voice wrapper** for backward compatibility
 
 ## [1.1.0] - 2026-07-14
 
