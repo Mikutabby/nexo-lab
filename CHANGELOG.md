@@ -47,6 +47,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Multi-language support
   - Auto clipboard copy
 - **Voice wrapper** for backward compatibility
+- **say.py v1.0** — Complete TTS rewrite in Python with:
+  - Multiple engines: Piper (offline), gTTS (cloud), espeak-ng (fallback)
+  - Text preprocessing (markdown, URLs, emojis)
+  - Multi-language support (es/en)
+  - Adjustable speed
+  - RAM-based temp files for reduced disk wear
 
 ## [1.1.0] - 2026-07-14
 
