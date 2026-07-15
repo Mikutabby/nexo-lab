@@ -29,13 +29,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Duplicate pattern in install.sh case statement (`voz|voice|voz` → `voice|voz`)
 - Variable quoting issues in install.sh
 
-## [Unreleased]
+## [1.3.0] - 2026-07-14
 
-### In Progress
-- Migrar say.sh (TTS) a Python
-- Migrar nexo-backup.sh/restore a Python
-- Docker support
-- Enhanced testing suite
+### Added
+- **nexo-backup.py v2.0** — Complete backup/restore rewrite in Python with:
+  - Encrypted backups with GPG (AES256)
+  - Interactive restore from local or GitHub
+  - Configurable retention policy
+  - Better error handling
+  - Cron support (passphrase from file)
+- **Backup wrappers** for backward compatibility
 
 ## [1.2.0] - 2026-07-14
 
