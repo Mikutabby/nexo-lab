@@ -41,7 +41,13 @@ OPENCODE_DIR="$HOME/.opencode"
 AGENT_DIR="$OPENCODE_DIR/agents"
 MEMORY_DIR="$HOME/.nexo-memory"
 NON_INTERACTIVE=false
+DRY_RUN=0
 # Requiere sudo sin contraseña — configurá: $USER ALL=(ALL) NOPASSWD: ALL
+
+# ── Source dry-run helper ───────────────────────────────────────────────────
+if [[ -f "$SCRIPT_DIR/system/nexo-dryrun.sh" ]]; then
+    source "$SCRIPT_DIR/system/nexo-dryrun.sh"
+fi
 
 # ── Mostrar ayuda ──────────────────────────────────────────────────────────
 show_help() {
@@ -54,6 +60,7 @@ show_help() {
     echo "  ./install.sh --list            Lista componentes disponibles"
     echo "  ./install.sh --help            Muestra esta ayuda"
     echo "  ./install.sh -y                Modo no-interactivo (sin preguntas)"
+    echo "  ./install.sh -n                Dry-run (solo muestra, no ejecuta)"
     echo ""
     echo "COMPONENTES:"
     echo "  dependencias   Dependencias del sistema (espeak-ng, python3, sqlite3, jq, etc)"
@@ -704,6 +711,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --non-interactive|-y)
             NON_INTERACTIVE=true
+            shift
+            ;;
+        --dry-run|-n)
+            DRY_RUN=1
             shift
             ;;
         --component|-c)
