@@ -1,294 +1,36 @@
 #!/bin/bash
-# 🔊 Nexo Wake Word Detection — v2 (disk-safe)
-# Escucha "nexo" sin escribir WAV a disco en cada ciclo.
+# ============================================================================
+# nexo-wake — Wrapper para nexo-wake.py
+# ============================================================================
+# Wrapper en bash que mantiene compatibilidad con el script original
+# mientras delega la lógica a la versión en Python.
 #
 # Uso:
-#   nexo-wake                    → Modo loop (escucha "nexo" cada ~3s, SIN escribir a disco)
-#   nexo-wake once               → Escucha una vez
-#   nexo-wake daemon start|stop  → Modo daemon
-#   nexo-wake sensitivity <0-1>  → Ajustar sensibilidad (defecto: 0.6)
+#   nexo-wake                    → modo loop
+#   nexo-wake once               → escuchar una vez
+#   nexo-wake daemon start|stop  → modo daemon
+#   nexo-wake sensitivity <0-1>  → ajustar sensibilidad
+# ============================================================================
 
-PIDFILE="/tmp/nexo-wake.pid"
-LOGFILE="/tmp/nexo-wake.log"
-SENSITIVITY=0.6
-DURATION=2
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON_SCRIPT="$SCRIPT_DIR/nexo-wake.py"
 
-# ── Usar tmpfs si existe, sino /tmp (pero minimizando escrituras) ──
-if [ -d /dev/shm ] && [ -w /dev/shm ]; then
-  TEMP_BASE="/dev/shm"
-elif [ -d /run ] && [ -w /run ]; then
-  TEMP_BASE="/run"
-else
-  TEMP_BASE="/tmp"
+# Activar venv si existe
+if [ -f "$HOME/.nexo-venv/bin/activate" ]; then
+    . "$HOME/.nexo-venv/bin/activate"
 fi
 
-log() {
-  echo "[$(date '+%H:%M:%S')] $*" >> "$LOGFILE"
-}
+# Verificar que Python está disponible
+if ! command -v python3 &> /dev/null; then
+    echo "Error: python3 no encontrado" >&2
+    exit 1
+fi
 
-check_wake_word() {
-  local text="$1"
-  local lower_text=$(echo "$text" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-záéíóúñ0-9 ]//g')
-  
-  # 1. Exact match
-  if echo "$lower_text" | grep -q "nexo"; then
-    return 0
-  fi
-  
-  # 2. Fuzzy match (difflib)
-  local fuzzy_result=$(python3 -c "
-import difflib, sys
-text = '''$lower_text'''
-targets = ['nexo', 'neco', 'nejo', 'necho', 'neto', 'deco', 'mecso']
-words = text.split()
-for word in words:
-    for target in targets:
-        ratio = difflib.SequenceMatcher(None, word, target).ratio()
-        if ratio >= $SENSITIVITY:
-            print('MATCH', word, ratio)
-            sys.exit(0)
-print('NOMATCH')
-" 2>/dev/null)
-  
-  if echo "$fuzzy_result" | grep -q "MATCH"; then
-    return 0
-  fi
-  
-  return 1
-}
+# Verificar que el script Python existe
+if [[ ! -f "$PYTHON_SCRIPT" ]]; then
+    echo "Error: nexo-wake.py no encontrado en $PYTHON_SCRIPT" >&2
+    exit 1
+fi
 
-# ── Escuchar + VAD + transcribir sin escribir a disco ──────────────
-# Estrategia: primero detectamos actividad de voz en RAM pura,
-# SOLO si hay voz escribimos un WAV temporal y lo transcribimos.
-record_and_check() {
-  # 1. Capturar audio RAW en una tubería
-  local raw_file="$TEMP_BASE/nexo-wake-raw-$$.raw"
-  local wav_file="$TEMP_BASE/nexo-wake-$$.wav"
-  
-  export PULSE_SERVER="${PULSE_SERVER:-unix:/run/user/1000/pulse/native}"
-  
-  # Grabar audio sin codificar (raw PCM)
-  timeout "$DURATION" parec --rate=16000 --channels=1 --format=s16le 2>/dev/null > "$raw_file"
-  if [ ! -s "$raw_file" ]; then
-    # Fallback: rec (SoX) directo a WAV
-    rec -q -r 16000 -c 1 -b 16 "$wav_file" trim 0 "$DURATION" 2>/dev/null
-    rm -f "$raw_file"
-  fi
-  
-  # 2. VAD: detectar si hay voz SIN ESCRIBIR (procesando raw PCM en RAM)
-  local has_voice="false"
-  if [ -s "$raw_file" ]; then
-    has_voice=$(python3 -c "
-import sys, struct, math
-
-# Leer raw PCM s16le y detectar energia
-with open('$raw_file', 'rb') as f:
-    data = f.read()
-
-# Dividir en frames de 30ms (480 samples a 16kHz)
-frame_size = 480  # 30ms
-frames = [data[i:i+frame_size*2] for i in range(0, len(data), frame_size*2)]
-
-if not frames:
-    print('false')
-    sys.exit(0)
-
-# Calcular RMS de cada frame, contar frames con voz
-voice_frames = 0
-for frame in frames:
-    if len(frame) < frame_size * 2:
-        continue
-    samples = struct.unpack('<' + 'h' * (len(frame)//2), frame)
-    rms = math.sqrt(sum(s*s for s in samples) / len(samples)) if samples else 0
-    if rms > 300:  # Threshold de silencio
-        voice_frames += 1
-
-# Si mas del 10% de los frames tienen voz, hay actividad
-if voice_frames > max(1, len(frames) * 0.1):
-    print('true')
-else:
-    print('false')
-" 2>/dev/null)
-    rm -f "$raw_file"
-  else
-    # Si usamos rec, verificar el WAV
-    if [ -s "$wav_file" ]; then
-      local wav_size=$(stat -c%s "$wav_file" 2>/dev/null || echo 0)
-      if [ "$wav_size" -gt 5000 ]; then
-        has_voice="true"
-      fi
-    fi
-  fi
-  
-  if [ "$has_voice" != "true" ]; then
-    rm -f "$raw_file" "$wav_file"
-    return 1
-  fi
-  
-  # 3. Si hay voz, convertir raw a WAV (si no se hizo antes)
-  if [ -s "$raw_file" ]; then
-    :
-  elif [ ! -s "$wav_file" ]; then
-    if [ -f "$raw_file" ]; then
-      ffmpeg -y -f s16le -ar 16000 -ac 1 -i "$raw_file" "$wav_file" 2>/dev/null
-    fi
-  fi
-  
-  if [ ! -s "$wav_file" ]; then
-    rm -f "$wav_file"
-    return 1
-  fi
-  
-  # 4. Transcribir
-  local text=$(python3 -c "
-import sys
-try:
-    import speech_recognition as sr
-except:
-    import subprocess
-    subprocess.run([sys.executable, '-m', 'pip', 'install', 'SpeechRecognition', '--break-system-packages'])
-    import speech_recognition as sr
-
-r = sr.Recognizer()
-with sr.WavFile('$wav_file') as source:
-    r.adjust_for_ambient_noise(source, duration=0.3)
-    audio = r.record(source)
-
-try:
-    text = r.recognize_google(audio, language='es-ES')
-    print(text)
-except:
-    pass
-" 2>/dev/null)
-  
-  rm -f "$wav_file" "$raw_file"
-  
-  if [[ -z "$text" ]]; then
-    return 1
-  fi
-  
-  echo "$text"
-  
-  if check_wake_word "$text"; then
-    return 0
-  fi
-  
-  return 1
-}
-
-cmd_once() {
-  echo "🎤 Escuchando... (${DURATION}s)" >&2
-  local text
-  text=$(record_and_check 2>/dev/null)
-  local ret=$?
-  
-  if [[ -n "$text" ]]; then
-    echo "📝 Transcripción: $text" >&2
-  fi
-  
-  if [ $ret -eq 0 ]; then
-    echo "✅ Wake word detectada: '$text'" >&2
-    echo "$text"
-    return 0
-  else
-    echo "❌ No se detectó wake word" >&2
-    return 1
-  fi
-}
-
-cmd_loop() {
-  echo "🔊 Nexo Wake — Modo loop (sin escritura a disco)"
-  echo "   Escuchando cada ${DURATION}s..."
-  echo "   Wake word: 'nexo' (sensibilidad: $SENSITIVITY)"
-  echo "   Temp: $TEMP_BASE (RAM-based)"
-  echo "   PID: $$"
-  echo ""
-  
-  while true; do
-    local text
-    text=$(record_and_check 2>/dev/null)
-    local ret=$?
-    
-    if [ $ret -eq 0 ] && [[ -n "$text" ]]; then
-      log "🎤 Wake word: $text"
-      echo "🔊 Wake word detectada: $text" | tee -a "$LOGFILE"
-      
-      # Extraer el comando después de "nexo"
-      local command=$(echo "$text" | sed 's/nexo//gi' | sed 's/^[[:space:]]*//')
-      
-      if [[ -n "$command" ]]; then
-        log "🗣️ Comando: $command"
-        echo "🗣️ Procesando: $command"
-        bash ~/.opencode/voice.sh es 5 2>/dev/null
-      else
-        log "⏳ Esperando comando completo..."
-        echo "⏳ Hablá tu comando..."
-        bash ~/.opencode/voice.sh es 5 2>/dev/null
-      fi
-    fi
-    
-    sleep 0.5
-  done
-}
-
-cmd_daemon() {
-  case "${1:-start}" in
-    start)
-      if [[ -f "$PIDFILE" ]] && kill -0 $(cat "$PIDFILE") 2>/dev/null; then
-        echo "❌ nexo-wake ya está corriendo (PID: $(cat $PIDFILE))"
-        exit 1
-      fi
-      echo "🔊 Iniciando nexo-wake daemon..."
-      nohup "$0" loop > /dev/null 2>&1 &
-      echo $! > "$PIDFILE"
-      echo "✅ Daemon iniciado (PID: $!)"
-      ;;
-    stop)
-      if [[ ! -f "$PIDFILE" ]]; then
-        echo "❌ nexo-wake no está corriendo"
-        exit 1
-      fi
-      kill $(cat "$PIDFILE") 2>/dev/null
-      rm -f "$PIDFILE"
-      echo "✅ Daemon detenido"
-      ;;
-    status)
-      if [[ -f "$PIDFILE" ]] && kill -0 $(cat "$PIDFILE") 2>/dev/null; then
-        echo "🔊 nexo-wake: activo (PID: $(cat $PIDFILE))"
-      else
-        echo "🔊 nexo-wake: inactivo"
-      fi
-      ;;
-    *)
-      echo "❌ Uso: nexo-wake daemon start|stop|status"
-      ;;
-  esac
-}
-
-# Main
-case "${1:-loop}" in
-  once|one-shot)
-    cmd_once
-    ;;
-  loop|listen)
-    cmd_loop
-    ;;
-  daemon)
-    shift
-    cmd_daemon "$@"
-    ;;
-  sensitivity|sens)
-    if [[ -n "$2" && "$2" =~ ^[0-9.]+$ ]]; then
-      SENSITIVITY="$2"
-      echo "✅ Sensibilidad ajustada a: $SENSITIVITY"
-    else
-      echo "Sensibilidad actual: $SENSITIVITY"
-    fi
-    ;;
-  help|--help|-h)
-    head -50 "$0" | grep -E "^# " | sed 's/^# //' || echo "Uso: nexo-wake [once|loop|daemon|help]"
-    ;;
-  *)
-    cmd_loop
-    ;;
-esac
+# Ejecutar el script Python con todos los argumentos
+exec python3 "$PYTHON_SCRIPT" "$@"
