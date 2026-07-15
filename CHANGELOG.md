@@ -38,6 +38,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Configurable retention policy
   - Better error handling
   - Cron support (passphrase from file)
+- **temp-monitor.py v2.0** — Temperature monitor rewrite in Python with:
+  - Continuous temperature monitoring
+  - Speaker and notification alerts
+  - Automatic shutdown on critical
+  - Shutdown cancellation
+- **limpiar.py v2.0** — System cleaner rewrite in Python with:
+  - APT cache cleaning
+  - Thumbnail cleanup
+  - System journal cleanup
+  - Browser cache cleanup
+  - Trash cleanup
+  - Temp file cleanup
+  - RAM freeing
+  - Dry-run mode
+- **check-identity.py v2.0** — Identity verification rewrite in Python with:
+  - Facial recognition
+  - Result storage with timestamp
+- **nexo-daemon.py v2.0** — Voice assistant daemon rewrite in Python with:
+  - Voice listening, processing, and response
+  - Wake word detection
+  - Foreground and background modes
+  - Log rotation
+- **nexo-audio.py v2.0** — Audio diagnostics rewrite in Python with:
+  - PipeWire and WirePlumber status
+  - Audio device status
+  - Playback and microphone testing
+  - Quick fixes
+- **temp-cancel.py v2.0** — Shutdown cancellation rewrite in Python with:
+  - Programmed shutdown cancellation
+  - Status file cleanup
+  - Current temperature info
+- **nexo-dryrun.py v2.0** — Safe command execution rewrite in Python with:
+  - Safe command execution
+  - Dry-run mode
+  - Confirmation before execution
+  - Action logging
 - **Backup wrappers** for backward compatibility
 
 ## [1.2.0] - 2026-07-14
