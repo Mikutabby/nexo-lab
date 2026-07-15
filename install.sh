@@ -172,11 +172,11 @@ install_deps() {
         warn "Instalá manualmente: espeak-ng, python3, jq, sqlite3, curl"
     elif [[ "$PKG_MANAGER" == "apt" ]]; then
         run_sudo apt update -qq 2>/dev/null
-        run_sudo $INSTALL_CMD espeak-ng mpg123 python3 python3-pip jq sqlite3 curl 2>/dev/null
+        run_sudo "$INSTALL_CMD" espeak-ng mpg123 python3 python3-pip jq sqlite3 curl 2>/dev/null
         ok "Dependencias de sistema instaladas (apt)"
     elif [[ -n "$INSTALL_CMD" ]]; then
         warn "Instalando con $PKG_MANAGER... (puede pedir confirmación)"
-        run_sudo $INSTALL_CMD espeak-ng mpg123 python3 python3-pip jq sqlite3 curl 2>/dev/null
+        run_sudo "$INSTALL_CMD" espeak-ng mpg123 python3 python3-pip jq sqlite3 curl 2>/dev/null
     else
         warn "Gestor de paquetes no detectado. Instalá manualmente:"
         warn "  espeak-ng, python3, pip, jq, sqlite3, curl, mpg123"
@@ -515,6 +515,7 @@ STYLE_EOF
     if ! grep -q '.opencode/bin' "$HOME/.bashrc" 2>/dev/null; then
         echo '' >> "$HOME/.bashrc"
         echo '# OpenCode' >> "$HOME/.bashrc"
+        # shellcheck disable=SC2016
         echo 'export PATH="$HOME/.opencode/bin:$PATH"' >> "$HOME/.bashrc"
         ok "PATH: agregado a ~/.bashrc"
     fi
@@ -730,7 +731,7 @@ for comp in "${COMPONENTS[@]}"; do
             install_deps
             INSTALLED=$((INSTALLED + 1))
             ;;
-        voz|voice|voz)
+        voice|voz)
             install_voice
             INSTALLED=$((INSTALLED + 1))
             ;;
