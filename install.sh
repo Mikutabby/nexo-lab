@@ -34,11 +34,13 @@ warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 err()   { echo -e "${RED}[ERR]${NC} $*"; }
 header(){ echo -e "\n${CYAN}━━━ $* ━━━${NC}\n"; }
 
+# ── Variables globales ─────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
 OPENCODE_DIR="$HOME/.opencode"
 AGENT_DIR="$OPENCODE_DIR/agents"
 MEMORY_DIR="$HOME/.nexo-memory"
+NON_INTERACTIVE=false
 # Requiere sudo sin contraseña — configurá: $USER ALL=(ALL) NOPASSWD: ALL
 
 # ── Mostrar ayuda ──────────────────────────────────────────────────────────
@@ -51,6 +53,7 @@ show_help() {
     echo "  ./install.sh -c <componente>   Instala solo un componente"
     echo "  ./install.sh --list            Lista componentes disponibles"
     echo "  ./install.sh --help            Muestra esta ayuda"
+    echo "  ./install.sh -y                Modo no-interactivo (sin preguntas)"
     echo ""
     echo "COMPONENTES:"
     echo "  dependencias   Dependencias del sistema (espeak-ng, python3, sqlite3, jq, etc)"
@@ -652,10 +655,14 @@ install_all() {
     fi
 
     # Preguntar por Ollama
-    echo ""
-    echo -n "❓ ¿Querés instalar Ollama para funciones avanzadas? (s/N): "
-    read -r INSTALL_OLLAMA_ANS
-    [[ "$INSTALL_OLLAMA_ANS" =~ ^[sS]$ ]] && install_ollama
+    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+        info "Modo no-interactivo: Ollama no se instala automáticamente"
+    else
+        echo ""
+        echo -n "❓ ¿Querés instalar Ollama para funciones avanzadas? (s/N): "
+        read -r INSTALL_OLLAMA_ANS
+        [[ "$INSTALL_OLLAMA_ANS" =~ ^[sS]$ ]] && install_ollama
+    fi
 
     header "✅ ECOSISTEMA NEXO INSTALADO"
     echo "   📍 Scripts:    $BIN_DIR/"
@@ -694,6 +701,10 @@ while [[ $# -gt 0 ]]; do
         --list|-l)
             list_components
             exit 0
+            ;;
+        --non-interactive|-y)
+            NON_INTERACTIVE=true
+            shift
             ;;
         --component|-c)
             shift
