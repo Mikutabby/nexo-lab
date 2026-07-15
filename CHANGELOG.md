@@ -32,6 +32,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### In Progress
-- Python migration for nexo-secrets
-- Enhanced testing suite
 - Docker support
+- Enhanced testing suite
+- More Python migrations
+
+## [1.1.0] - 2026-07-14
+
+### Added
+- **nexo-secrets v3.0** — Complete rewrite in Python with:
+  - Better error handling
+  - Structured logging
+  - Export/import functionality
+  - Automatic backups before import
+  - Commands: get, set, check, delete, list, status, export, import
+- **Wrapper script** for backward compatibility
