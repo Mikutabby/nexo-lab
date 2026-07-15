@@ -1,5 +1,7 @@
 # 🧠 Nexo Ecosystem
 
+[![English](https://img.shields.io/badge/lang-English-blue)](README.en.md)
+
 > Asistente autónomo para el hogar con **memoria persistente** — se acuerda de todo lo que hacés.  
 > **Solo Linux** — requiere bash, systemd y PulseAudio.
 
