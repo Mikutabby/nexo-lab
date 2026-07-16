@@ -1,16 +1,30 @@
-#!/bin/bash
-# hermes - Wrapper para Hermes Agent
-# Uso: hermes [comando] [args...]
+#!/usr/bin/env python3
+"""
+hermes — Wrapper para Hermes Agent
+"""
+import os
+import sys
+import subprocess
+from pathlib import Path
 
-HERMES_HOME="$HOME/.hermes/hermes-agent"
-VENV="$HERMES_HOME/.venv"
+HERMES_HOME = Path.home() / ".hermes" / "hermes-agent"
+VENV = HERMES_HOME / ".venv"
 
-if [ ! -f "$VENV/bin/activate" ]; then
-    echo "❌ Virtual environment no encontrado en $VENV"
-    echo "   Ejecutá: python3.11 -m venv $VENV"
-    exit 1
-fi
+def main():
+    venv_activate = VENV / "bin" / "activate"
+    
+    if not venv_activate.exists():
+        print(f"❌ Virtual environment no encontrado en {VENV}")
+        print(f"   Ejecutá: python3.11 -m venv {VENV}")
+        return 1
+    
+    # Activar venv y ejecutar
+    env = os.environ.copy()
+    env["VIRTUAL_ENV"] = str(VENV)
+    env["PATH"] = str(VENV / "bin") + ":" + env.get("PATH", "")
+    
+    os.chdir(HERMES_HOME)
+    os.execve(sys.executable, [sys.executable, "-m", "hermes_cli.main"] + sys.argv[1:], env)
 
-source "$VENV/bin/activate"
-cd "$HERMES_HOME"
-exec python -m hermes_cli.main "$@"
+if __name__ == "__main__":
+    sys.exit(main())

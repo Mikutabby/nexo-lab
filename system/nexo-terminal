@@ -1,36 +1,37 @@
-#!/bin/bash
-# nexo-terminal - Terminal personalizada de Nexo
-# Abre una terminal con prompt personalizado, colores y aliases
+#!/usr/bin/env python3
+"""
+nexo-terminal — Terminal personalizada de Nexo
+"""
+import os
+import sys
+import subprocess
+from pathlib import Path
 
-CONFIG="$HOME/.nexo-terminalrc"
-TITLE="NEXO TERMINAL"
+CONFIG = Path.home() / ".nexo-terminalrc"
+TITLE = "NEXO TERMINAL"
 
-# Verificar que existe la config
-if [ ! -f "$CONFIG" ]; then
-    echo "Error: No se encontro $CONFIG"
-    exit 1
-fi
+def main():
+    if not CONFIG.exists():
+        print(f"Error: No se encontró {CONFIG}", file=sys.stderr)
+        return 1
+    
+    # Detectar terminal disponible
+    terminals = [
+        (["xfce4-terminal", "--hold", "--title=" + TITLE, "--geometry=100x30", 
+          "-e", f"bash --rcfile {CONFIG}"], "xfce4-terminal"),
+        (["gnome-terminal", "--title=" + TITLE, "--", "bash", "--rcfile", str(CONFIG)], "gnome-terminal"),
+        (["konsole", "--title", TITLE, "-e", "bash", "--rcfile", str(CONFIG)], "konsole"),
+    ]
+    
+    for cmd, name in terminals:
+        if subprocess.run(["which", name], capture_output=True).returncode == 0:
+            subprocess.Popen(cmd)
+            print("Nexo Terminal abierta")
+            return 0
+    
+    # Fallback: bash con config
+    os.execvp("bash", ["bash", "--rcfile", str(CONFIG)])
+    return 0
 
-# Matar instancias anteriores de nexo-terminal (no las normales)
-# pkill -f "NEXO TERMINAL" 2>/dev/null
-
-# Detectar terminal disponible
-launch_term() {
-    if command -v xfce4-terminal &>/dev/null; then
-        xfce4-terminal --hold \
-            --title="$TITLE" \
-            --geometry=100x30 \
-            -e "bash --rcfile $CONFIG" &
-    elif command -v gnome-terminal &>/dev/null; then
-        gnome-terminal --title="$TITLE" \
-            -- bash --rcfile "$CONFIG" &
-    elif command -v konsole &>/dev/null; then
-        konsole --title "$TITLE" -e bash --rcfile "$CONFIG" &
-    else
-        # Fallback: bash con config
-        bash --rcfile "$CONFIG"
-    fi
-}
-
-launch_term
-echo "Nexo Terminal abierta"
+if __name__ == "__main__":
+    sys.exit(main())

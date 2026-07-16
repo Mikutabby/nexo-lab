@@ -1,66 +1,96 @@
-#!/bin/bash
-# 📱 Nexo Telegram — Notificaciones por Telegram
-# Uso: nexo-telegram "mensaje"           → enviar mensaje
-#      nexo-telegram --check             → recibir último mensaje
-#      nexo-telegram --review            → revisar último commit y notificar
+#!/usr/bin/env python3
+"""
+nexo-telegram — Notificaciones por Telegram
+"""
+import os
+import sys
+import json
+import subprocess
+import urllib.parse
+import urllib.request
+from pathlib import Path
 
-CONFIG="$HOME/.config/nexo/telegram.json"
+CONFIG_PATH = Path.home() / ".config" / "nexo" / "telegram.json"
 
-if [ ! -f "$CONFIG" ]; then
-  echo "❌ No hay configuración de Telegram en $CONFIG"
-  exit 1
-fi
+def load_config():
+    if not CONFIG_PATH.exists():
+        print(f"❌ No hay configuración de Telegram en {CONFIG_PATH}", file=sys.stderr)
+        sys.exit(1)
+    
+    with open(CONFIG_PATH) as f:
+        config = json.load(f)
+    
+    return config["telegram"]["chat_id"], config["telegram"]["bot_token"]
 
-CHAT_ID=$(jq -r '.telegram.chat_id' "$CONFIG")
-BOT_TOKEN=$(jq -r '.telegram.bot_token' "$CONFIG")
-API_URL="https://api.telegram.org/bot${BOT_TOKEN}"
+def send_message(text, chat_id, bot_token):
+    api_url = f"https://api.telegram.org/bot{bot_token}"
+    data = urllib.parse.urlencode({
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "Markdown"
+    }).encode()
+    
+    req = urllib.request.Request(f"{api_url}/sendMessage", data=data, method="POST")
+    urllib.request.urlopen(req)
+    print("✅ Mensaje enviado")
 
-send_message() {
-  local text="$1"
-  curl -s -X POST "${API_URL}/sendMessage" \
-    -d "chat_id=${CHAT_ID}" \
-    -d "text=${text}" \
-    -d "parse_mode=Markdown" > /dev/null 2>&1
-  echo "✅ Mensaje enviado"
-}
+def get_updates(bot_token):
+    api_url = f"https://api.telegram.org/bot{bot_token}"
+    req = urllib.request.Request(f"{api_url}/getUpdates?offset=-1&limit=1")
+    resp = urllib.request.urlopen(req)
+    data = json.loads(resp.read())
+    
+    if data.get("result"):
+        return data["result"][-1].get("message", {}).get("text", "no_message")
+    return "no_message"
 
-get_updates() {
-  curl -s "${API_URL}/getUpdates?offset=-1&limit=1" 2>/dev/null | \
-    jq -r '.result[-1].message.text // "no_message"'
-}
+def review_latest(chat_id, bot_token):
+    repo_path = Path.home() / "nexo-lab"
+    if not repo_path.exists():
+        print("❌ No hay repo nexo-lab", file=sys.stderr)
+        sys.exit(1)
+    
+    def git_cmd(cmd):
+        result = subprocess.run(cmd, cwd=repo_path, capture_output=True, text=True)
+        return result.stdout.strip()
+    
+    commit = git_cmd(["git", "log", "-1", "--format=%h %s"])
+    files = git_cmd(["git", "diff", "--stat", "HEAD~1", "HEAD"]).split('\n')[-1]
+    author = git_cmd(["git", "log", "-1", "--format=%an"])
+    date = git_cmd(["git", "log", "-1", "--format=%ci"])
+    commit_hash = git_cmd(["git", "log", "-1", "--format=%H"])
+    
+    msg = f"""🔍 *Último commit en nexo-lab:*
 
-review_latest() {
-  cd ~/nexo-lab 2>/dev/null || { echo "❌ No hay repo nexo-lab"; exit 1; }
-  
-  local commit=$(git log -1 --format="%h %s" 2>/dev/null)
-  local files=$(git diff --stat HEAD~1 HEAD 2>/dev/null | tail -1)
-  local author=$(git log -1 --format="%an" 2>/dev/null)
-  local date=$(git log -1 --format="%ci" 2>/dev/null)
-  
-  local msg="🔍 *Último commit en nexo-lab:*\n"
-  msg+="\n"
-  msg+="\`$commit\`\n"
-  msg+="👤 $author | 📅 $date\n"
-  msg+="\n"
-  msg+="📊 $files\n"
-  msg+="\n"
-  msg+="🔗 https://github.com/Mikutabby/nexo-lab/commit/$(git log -1 --format="%H" 2>/dev/null)"
-  
-  send_message "$msg"
-}
+`{commit}`
+👤 {author} | 📅 {date}
 
-case "${1:-}" in
-  --check)
-    echo "📨 Último mensaje: $(get_updates)"
-    ;;
-  --review)
-    review_latest
-    ;;
-  --help|-h)
-    echo "Uso: nexo-telegram [mensaje|--check|--review]"
-    ;;
-  *)
-    [ -z "${1:-}" ] && echo "Uso: nexo-telegram \"mensaje\"" && exit 1
-    send_message "$1"
-    ;;
-esac
+📊 {files}
+
+🔗 https://github.com/Mikutabby/nexo-lab/commit/{commit_hash}"""
+    
+    send_message(msg, chat_id, bot_token)
+
+def main():
+    chat_id, bot_token = load_config()
+    args = sys.argv[1:]
+    
+    if not args:
+        print("Uso: nexo-telegram [mensaje|--check|--review]")
+        return 1
+    
+    cmd = args[0]
+    
+    if cmd == "--check":
+        print(f"📨 Último mensaje: {get_updates(bot_token)}")
+    elif cmd == "--review":
+        review_latest(chat_id, bot_token)
+    elif cmd in ["--help", "-h"]:
+        print("Uso: nexo-telegram [mensaje|--check|--review]")
+    else:
+        send_message(cmd, chat_id, bot_token)
+    
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

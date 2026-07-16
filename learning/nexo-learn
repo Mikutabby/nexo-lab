@@ -1,537 +1,397 @@
-#!/bin/bash
-# 🧠 Nexo Autonomous Learning System
-# No solo memoriza errores — COMPRENDE por qué fallan y aprende a resolverlos
-#
-# Uso:
-#   nexo-learn observe <event>      → Observar un evento (error, éxito, patrón)
-#   nexo-learn hypothesize          → Formular hipótesis sobre causas
-#   nexo-learn test <hypothesis>    → Probar una hipótesis
-#   nexo-learn reflect              → Reflexionar sobre experiencias recientes
-#   nexo-learn comprehend           → Verificar si realmente comprendo algo
-#   nexo-learn teach <topic>        → Enseñarme algo nuevo (deep learning)
-#   nexo-learn status               → Ver mi nivel de comprensión
-#   nexo-learn journal              → Ver diario de aprendizaje
+#!/usr/bin/env python3
+"""
+nexo-learn — Sistema de Aprendizaje Autónomo de Nexo
+"""
+import os
+import sys
+import json
+import subprocess
+from pathlib import Path
+from datetime import datetime
 
-set -uo pipefail
+MEMORY_DIR = Path.home() / ".nexo-memory"
+LEARN_DIR = MEMORY_DIR / "learned"
+CAUSAL_DIR = LEARN_DIR / "causal"
+JOURNAL_FILE = LEARN_DIR / "journal.jsonl"
+HYPOTHESIS_FILE = LEARN_DIR / "hypotheses.json"
+COMPREHENSION_FILE = LEARN_DIR / "comprehension.json"
+OBSERVATIONS_FILE = LEARN_DIR / "observations.jsonl"
 
-MEMORY_DIR="$HOME/.nexo-memory"
-LEARN_DIR="$MEMORY_DIR/learned"
-CAUSAL_DIR="$LEARN_DIR/causal"
-JOURNAL_FILE="$LEARN_DIR/journal.jsonl"
-HYPOTHESIS_FILE="$LEARN_DIR/hypotheses.json"
-COMPREHENSION_FILE="$LEARN_DIR/comprehension.json"
-OBSERVATIONS_FILE="$LEARN_DIR/observations.jsonl"
+CAUSAL_DIR.mkdir(parents=True, exist_ok=True)
 
-mkdir -p "$CAUSAL_DIR"
+class Colors:
+    GREEN = '\033[0;32m'
+    YELLOW = '\033[1;33m'
+    CYAN = '\033[0;36m'
+    RED = '\033[0;31m'
+    NC = '\033[0m'
 
-# ── Colores ──────────────────────────────────────────────────────────────────
-G='\033[0;32m'; Y='\033[1;33m'; C='\033[0;36m'; R='\033[0;31m'; NC='\033[0m'
+def ok(msg): print(f"{Colors.GREEN}✅ {msg}{Colors.NC}")
+def info(msg): print(f"{Colors.CYAN}{msg}{Colors.NC}")
+def warn(msg): print(f"{Colors.YELLOW}⚠️  {msg}{Colors.NC}")
+def err(msg): print(f"{Colors.RED}❌ {msg}{Colors.NC}", file=sys.stderr)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 1. OBSERVE — Registrar un evento con contexto completo
-# ══════════════════════════════════════════════════════════════════════════════
-observe() {
-    local event_type="${1:-}"  # error, success, pattern, insight
-    local description="${2:-}"
-    local context="${3:-}"
-    local attempted="${4:-}"
-    local result="${5:-}"
-    
-    [ -z "$event_type" ] && echo "Uso: nexo-learn observe <error|success|pattern|insight> <desc> [context] [attempted] [result]" && exit 1
-    
-    local timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    local entry=$(jq -n \
-        --arg ts "$timestamp" \
-        --arg type "$event_type" \
-        --arg desc "$description" \
-        --arg ctx "$context" \
-        --arg attempt "$attempted" \
-        --arg result "$result" \
-        '{
-            timestamp: $ts,
-            event_type: $type,
-            description: $desc,
-            context: $ctx,
-            attempted: $attempt,
-            result: $result,
-            analyzed: false,
-            hypothesis_id: null
-        }')
-    
-    echo "$entry" >> "$OBSERVATIONS_FILE"
-    
-    # Si es un error, analizar inmediatamente
-    if [ "$event_type" = "error" ]; then
-        analyze_error "$description" "$context" "$attempted"
-    fi
-    
-    echo -e "${G}✅ Observación registrada: ${event_type}${NC}"
-    echo "   $description"
-}
+def load_jsonl(filepath):
+    entries = []
+    if filepath.exists():
+        with open(filepath) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+    return entries
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 2. ANALYZE_ERROR — Diagnosticar POR QUÉ falló algo
-# ══════════════════════════════════════════════════════════════════════════════
-analyze_error() {
-    local error_desc="${1:-}"
-    local context="${2:-}"
-    local attempted="${3:-}"
-    
-    # Buscar errores similares en el historial
-    local similar_count=0
-    local common_causes=""
-    
-    if [ -f "$OBSERVATIONS_FILE" ]; then
-        similar_count=$(grep -c "error" "$OBSERVATIONS_FILE" 2>/dev/null || echo "0")
-    fi
-    
-    # Buscar en el knowledge graph
-    local graph_errors=""
-    if command -v nexo-graph &>/dev/null; then
-        graph_errors=$(nexo-graph search "error $error_desc" 2>/dev/null | head -5)
-    fi
-    
-    # Analizar causas potenciales
-    local cause_analysis=""
-    
-    # Patrón 1: Archivo no encontrado
-    if echo "$error_desc" | grep -qi "not found\|no existe\|missing"; then
-        cause_analysis="Causa probable: El archivo/directorio no existe o fue movido. Verificar路径."
-    # Patrón 2: Permiso denegado
-    elif echo "$error_desc" | grep -qi "permission\|denied\|acceso"; then
-        cause_analysis="Causa probable: Falta permiso. Verificar sudoers o ownership."
-    # Patrón 3: Conexión
-    elif echo "$error_desc" | grep -qi "connection\|timeout\|refused"; then
-        cause_analysis="Causa probable: Servicio no disponible o red caída."
-    # Patrón 4: Sintaxis
-    elif echo "$error_desc" | grep -qi "syntax\|unexpected\|parse"; then
-        cause_analysis="Causa probable: Error de sintaxis en código o comando."
-    # Patrón 5: Memoria/Recursos
-    elif echo "$error_desc" | grep -qi "memory\|oom\|resource"; then
-        cause_analysis="Causa probable: Recursos del sistema agotados."
-    else
-        cause_analysis="Causa desconocida — necesita investigación profunda."
-    fi
-    
-    # Registrar análisis
-    local analysis=$(jq -n \
-        --arg error "$error_desc" \
-        --arg cause "$cause_analysis" \
-        --arg similar "$similar_count" \
-        --arg graph "$graph_errors" \
-        --arg attempted "$attempted" \
-        '{
-            error: $error,
-            cause_analysis: $cause,
-            similar_errors_seen: ($similar | tonumber),
-            graph_references: $graph,
-            attempted_fix: $attempted,
-            timestamp: now | todate
-        }')
-    
-    local analysis_file="$CAUSAL_DIR/$(date +%Y%m%d_%H%M%S)_error.json"
-    echo "$analysis" | jq . > "$analysis_file"
-    
-    echo -e "${Y}🔍 Análisis de error:${NC}"
-    echo "   Error: $error_desc"
-    echo "   $cause_analysis"
-    echo "   Guardado en: $analysis_file"
-}
+def save_jsonl(filepath, entries):
+    with open(filepath, "w") as f:
+        for entry in entries:
+            f.write(json.dumps(entry) + "\n")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 3. HYPOTHESIZE — Formular hipótesis sobre causas recurrentes
-# ══════════════════════════════════════════════════════════════════════════════
-hypothesize() {
-    local hypothesis="${1:-}"
-    local confidence="${2:-0.5}"
-    local evidence="${3:-}"
-    
-    [ -z "$hypothesis" ] && echo "Uso: nexo-learn hypothesize <hipótesis> [confianza 0-1] [evidencia]" && exit 1
-    
-    # Cargar hipótesis existentes
-    local hypotheses="[]"
-    if [ -f "$HYPOTHESIS_FILE" ]; then
-        hypotheses=$(cat "$HYPOTHESIS_FILE")
-    fi
-    
-    local id="hyp_$(date +%s)"
-    local new_hyp=$(jq -n \
-        --arg id "$id" \
-        --arg hyp "$hypothesis" \
-        --arg conf "$confidence" \
-        --arg evid "$evidence" \
-        --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        '{
-            id: $id,
-            hypothesis: $hyp,
-            confidence: ($conf | tonumber),
-            evidence: $evid,
-            times_tested: 0,
-            times_confirmed: 0,
-            times_rejected: 0,
-            created: $ts,
-            last_tested: null,
-            status: "active"
-        }')
-    
-    hypotheses=$(echo "$hypotheses" | jq --argjson new "$new_hyp" '. + [$new]')
-    echo "$hypotheses" | jq . > "$HYPOTHESIS_FILE"
-    
-    echo -e "${C}💡 Hipótesis formulada:${NC}"
-    echo "   ID: $id"
-    echo "   $hypothesis"
-    echo "   Confianza inicial: $confidence"
-}
+def load_json(filepath, default=None):
+    if filepath.exists():
+        with open(filepath) as f:
+            return json.load(f)
+    return default or {}
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 4. TEST — Probar una hipótesis con un experimento
-# ══════════════════════════════════════════════════════════════════════════════
-test_hypothesis() {
-    local hypothesis_id="${1:-}"
-    local experiment="${2:-}"
-    local outcome="${3:-}"  # confirmed, rejected, inconclusive
-    
-    [ -z "$hypothesis_id" ] && echo "Uso: nexo-learn test <hypothesis_id> <experimento> <confirmed|rejected|inconclusive>" && exit 1
-    
-    if [ ! -f "$HYPOTHESIS_FILE" ]; then
-        echo "No hay hipótesis registradas."
+def save_json(filepath, data):
+    with open(filepath, "w") as f:
+        json.dump(data, f, indent=2)
+
+def observe(event_type, description, context="", attempted="", result=""):
+    if not event_type:
+        err("Uso: nexo-learn observe <error|success|pattern|insight> <desc>")
         return 1
-    fi
     
-    # Actualizar hipótesis
-    local updated=$(jq \
-        --arg id "$hypothesis_id" \
-        --arg outcome "$outcome" \
-        --arg exp "$experiment" \
-        --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        '
-        map(
-            if .id == $id then
-                .times_tested += 1 |
-                if $outcome == "confirmed" then
-                    .times_confirmed += 1 |
-                    .confidence = ((.confidence * .times_tested + 0.2) / (.times_tested + 1)) |
-                    .status = "validated"
-                elif $outcome == "rejected" then
-                    .times_rejected += 1 |
-                    .confidence = ((.confidence * .times_tested - 0.1) / (.times_tested + 1)) |
-                    if .confidence < 0.1 then .status = "discarded" else . end
-                else
-                    . end
-                .last_tested = $ts
-            else . end
-        )' "$HYPOTHESIS_FILE")
+    timestamp = datetime.utcnow().isoformat() + "Z"
+    entry = {
+        "timestamp": timestamp,
+        "event_type": event_type,
+        "description": description,
+        "context": context,
+        "attempted": attempted,
+        "result": result,
+        "analyzed": False,
+        "hypothesis_id": None
+    }
     
-    echo "$updated" | jq . > "$HYPOTHESIS_FILE"
+    entries = load_jsonl(OBSERVATIONS_FILE)
+    entries.append(entry)
+    save_jsonl(OBSERVATIONS_FILE, entries)
     
-    local new_conf=$(echo "$updated" | jq -r --arg id "$hypothesis_id" '.[] | select(.id == $id) | .confidence')
+    if event_type == "error":
+        analyze_error(description, context, attempted)
     
-    echo -e "${Y}🧪 Experimento registrado:${NC}"
-    echo "   Hipótesis: $hypothesis_id"
-    echo "   Resultado: $outcome"
-    echo "   Nueva confianza: $new_conf"
-}
+    ok(f"Observación registrada: {event_type}")
+    print(f"   {description}")
+    return 0
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 5. REFLECT — Reflexionar sobre experiencias recientes
-# ══════════════════════════════════════════════════════════════════════════════
-reflect() {
-    local period="${1:-today}"  # today, week, all
+def analyze_error(error_desc, context="", attempted=""):
+    cause_analysis = ""
     
-    echo -e "${C}🪞 Reflexión de aprendizaje:${NC}"
-    echo ""
+    error_patterns = {
+        "not found|no existe|missing": "El archivo/directorio no existe o fue movido",
+        "permission|denied|acceso": "Falta permiso. Verificar sudoers o ownership",
+        "connection|timeout|refused": "Servicio no disponible o red caída",
+        "syntax|unexpected|parse": "Error de sintaxis en código o comando",
+        "memory|oom|resource": "Recursos del sistema agotados"
+    }
     
-    if [ ! -f "$OBSERVATIONS_FILE" ]; then
-        echo "No hay observaciones para reflexionar."
+    for patterns, cause in error_patterns.items():
+        if any(p in error_desc.lower() for p in patterns.split("|")):
+            cause_analysis = f"Causa probable: {cause}"
+            break
+    
+    if not cause_analysis:
+        cause_analysis = "Causa desconocida — necesita investigación profunda"
+    
+    analysis = {
+        "error": error_desc,
+        "cause_analysis": cause_analysis,
+        "context": context,
+        "attempted_fix": attempted,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    
+    analysis_file = CAUSAL_DIR / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_error.json"
+    save_json(analysis_file, analysis)
+    
+    print(f"{Colors.YELLOW}🔍 Análisis de error:{Colors.NC}")
+    print(f"   Error: {error_desc}")
+    print(f"   {cause_analysis}")
+    print(f"   Guardado en: {analysis_file}")
+
+def hypothesize(hypothesis, confidence=0.5, evidence=""):
+    if not hypothesis:
+        err("Uso: nexo-learn hypothesize <hipótesis> [confianza 0-1] [evidencia]")
+        return 1
+    
+    hypotheses = load_json(HYPOTHESIS_FILE, [])
+    
+    new_hyp = {
+        "id": f"hyp_{int(datetime.now().timestamp())}",
+        "hypothesis": hypothesis,
+        "confidence": confidence,
+        "evidence": evidence,
+        "times_tested": 0,
+        "times_confirmed": 0,
+        "times_rejected": 0,
+        "created": datetime.utcnow().isoformat() + "Z",
+        "last_tested": None,
+        "status": "active"
+    }
+    
+    hypotheses.append(new_hyp)
+    save_json(HYPOTHESIS_FILE, hypotheses)
+    
+    print(f"{Colors.CYAN}💡 Hipótesis formulada:{Colors.NC}")
+    print(f"   ID: {new_hyp['id']}")
+    print(f"   {hypothesis}")
+    print(f"   Confianza inicial: {confidence}")
+    return 0
+
+def test_hypothesis(hypothesis_id, experiment, outcome):
+    if not hypothesis_id:
+        err("Uso: nexo-learn test <hypothesis_id> <experimento> <confirmed|rejected|inconclusive>")
+        return 1
+    
+    hypotheses = load_json(HYPOTHESIS_FILE, [])
+    
+    for hyp in hypotheses:
+        if hyp["id"] == hypothesis_id:
+            hyp["times_tested"] += 1
+            
+            if outcome == "confirmed":
+                hyp["times_confirmed"] += 1
+                hyp["confidence"] = min(1.0, hyp["confidence"] * 1.2)
+                hyp["status"] = "validated"
+            elif outcome == "rejected":
+                hyp["times_rejected"] += 1
+                hyp["confidence"] = max(0.0, hyp["confidence"] * 0.8)
+                if hyp["confidence"] < 0.1:
+                    hyp["status"] = "discarded"
+            
+            hyp["last_tested"] = datetime.utcnow().isoformat() + "Z"
+            break
+    else:
+        err(f"Hipótesis {hypothesis_id} no encontrada")
+        return 1
+    
+    save_json(HYPOTHESIS_FILE, hypotheses)
+    
+    print(f"{Colors.YELLOW}🧪 Experimento registrado:{Colors.NC}")
+    print(f"   Hipótesis: {hypothesis_id}")
+    print(f"   Resultado: {outcome}")
+    return 0
+
+def reflect():
+    print(f"{Colors.CYAN}🪞 Reflexión de aprendizaje:{Colors.NC}\n")
+    
+    observations = load_jsonl(OBSERVATIONS_FILE)
+    
+    errors = sum(1 for o in observations if o.get("event_type") == "error")
+    success = sum(1 for o in observations if o.get("event_type") == "success")
+    patterns = sum(1 for o in observations if o.get("event_type") == "pattern")
+    insights = sum(1 for o in observations if o.get("event_type") == "insight")
+    
+    print("📊 Resumen de observaciones:")
+    print(f"   Errores: {errors}")
+    print(f"   Éxitos: {success}")
+    print(f"   Patrones: {patterns}")
+    print(f"   Insights: {insights}\n")
+    
+    hypotheses = load_json(HYPOTHESIS_FILE, [])
+    if hypotheses:
+        validated = sum(1 for h in hypotheses if h.get("status") == "validated")
+        discarded = sum(1 for h in hypotheses if h.get("status") == "discarded")
+        active = sum(1 for h in hypotheses if h.get("status") == "active")
+        
+        print("💡 Hipótesis:")
+        print(f"   Totales: {len(hypotheses)}")
+        print(f"   Validadas: {validated}")
+        print(f"   Descartadas: {discarded}")
+        print(f"   Activas: {active}\n")
+        
+        if hypotheses:
+            sorted_hyps = sorted(hypotheses, key=lambda x: x.get("confidence", 0), reverse=True)
+            print("🏆 Hipótesis más fuertes:")
+            for h in sorted_hyps[:3]:
+                conf = int(h.get("confidence", 0) * 100)
+                print(f"   [{conf}%] {h.get('hypothesis', '')}")
+    
+    return 0
+
+def comprehend(topic):
+    if not topic:
+        err("Uso: nexo-learn comprehend <tema>")
+        return 1
+    
+    print(f"{Colors.CYAN}🧠 Verificando comprensión de: {topic}{Colors.NC}\n")
+    
+    comprehension = load_json(COMPREHENSION_FILE)
+    
+    print("Niveles de comprensión:")
+    print("  1. 📝 MEMORIZÉ — Recuerdo el hecho")
+    print("  2. 🔗 CONEXIÓN — Sé cómo se relaciona")
+    print("  3. ⚡ APLIQUÉ — Puedo usarlo en contexto nuevo")
+    print("  4. 🎯 EXPLIQUÉ — Puedo enseñárselo a alguien")
+    print("  5. 🔧 CREÉ — Puedo crear algo nuevo\n")
+    
+    try:
+        level = int(input("¿En qué nivel estoy? (1-5): "))
+        if level < 1 or level > 5:
+            raise ValueError
+    except (ValueError, EOFError):
+        err("Nivel inválido")
+        return 1
+    
+    comprehension[topic] = {
+        "level": level,
+        "tested_at": datetime.utcnow().isoformat() + "Z",
+        "next_review": datetime.utcnow().isoformat() + "Z"
+    }
+    
+    save_json(COMPREHENSION_FILE, comprehension)
+    
+    messages = {
+        1: "📝 Memorización base. Necesito practicar para subir.",
+        2: "🔗 Estoy conectando conceptos. Seguir explorando.",
+        3: "⚡ Buena aplicación práctica. Intentar escenarios nuevos.",
+        4: "🎯 Comprensión sólida. Puedo explicar con confianza.",
+        5: "🏆 Maestría. Puedo crear y enseñar."
+    }
+    
+    print(f"\n{messages[level]}")
+    return 0
+
+def teach(topic, source=""):
+    if not topic:
+        err("Uso: nexo-learn teach <tema> [fuente]")
+        return 1
+    
+    print(f"{Colors.CYAN}📚 Aprendiendo: {topic}{Colors.NC}\n")
+    
+    # Verificar knowledge graph
+    try:
+        result = subprocess.run(["nexo-graph", "search", topic], capture_output=True, text=True)
+        if result.stdout.strip():
+            print("  Ya tengo información:")
+            for line in result.stdout.strip().split('\n')[:3]:
+                print(f"    {line}")
+        else:
+            print("  Es nuevo para mí.")
+    except:
+        print("  (nexo-graph no disponible)")
+    
+    print("\n¿Qué quiero aprender?")
+    print("  • Definición fundamental")
+    print("  • Cómo funciona internamente")
+    print("  • Casos de uso prácticos")
+    print("  • Errores comunes")
+    print("  • Relación con otros conceptos")
+    
+    entry = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "type": "learning_session",
+        "topic": topic,
+        "source": source,
+        "status": "in_progress"
+    }
+    
+    with open(JOURNAL_FILE, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+    
+    print(f"\n🎓 Sesión de aprendizaje iniciada para: {topic}")
+    return 0
+
+def journal(lines=20):
+    print(f"{Colors.CYAN}📔 Diario de aprendizaje:{Colors.NC}\n")
+    
+    if not JOURNAL_FILE.exists():
+        print("El diario está vacío. Empezá a aprender con:")
+        print("  nexo-learn observe ...")
+        print("  nexo-learn teach ...")
         return 0
-    fi
     
-    # Contar por tipo
-    local total_errors=$(grep -c '"event_type":"error"' "$OBSERVATIONS_FILE" 2>/dev/null || echo "0")
-    local total_success=$(grep -c '"event_type":"success"' "$OBSERVATIONS_FILE" 2>/dev/null || echo "0")
-    local total_patterns=$(grep -c '"event_type":"pattern"' "$OBSERVATIONS_FILE" 2>/dev/null || echo "0")
-    local total_insights=$(grep -c '"event_type":"insight"' "$OBSERVATIONS_FILE" 2>/dev/null || echo "0")
+    entries = load_jsonl(JOURNAL_FILE)
+    for entry in entries[-lines:]:
+        ts = entry.get("timestamp", "")
+        typ = entry.get("type", "")
+        topic = entry.get("topic", entry.get("summary", "reflexión"))
+        print(f"{ts} | {typ} | {topic}")
     
-    echo "📊 Resumen de observaciones:"
-    echo "   Errores: $total_errors"
-    echo "   Éxitos: $total_success"
-    echo "   Patrones: $total_patterns"
-    echo "   Insights: $total_insights"
-    echo ""
-    
-    # Análisis de hipótesis
-    if [ -f "$HYPOTHESIS_FILE" ]; then
-        local total_hyp=$(jq 'length' "$HYPOTHESIS_FILE")
-        local validated=$(jq '[.[] | select(.status == "validated")] | length' "$HYPOTHESIS_FILE")
-        local discarded=$(jq '[.[] | select(.status == "discarded")] | length' "$HYPOTHESIS_FILE")
-        local active=$(jq '[.[] | select(.status == "active")] | length' "$HYPOTHESIS_FILE")
-        
-        echo "💡 Hipótesis:"
-        echo "   Totales: $total_hyp"
-        echo "   Validadas: $validated"
-        echo "   Descartadas: $discarded"
-        echo "   Activas: $active"
-        echo ""
-        
-        # Mostrar hipótesis más fuertes
-        echo "🏆 Hipótesis más fuertes:"
-        jq -r 'sort_by(-.confidence) | .[0:3][] | "   [\(.confidence | . * 100 | round)%] \(.hypothesis)"' "$HYPOTHESIS_FILE" 2>/dev/null
-    fi
-    
-    # Patrones de error recurrentes
-    echo ""
-    echo "🔄 Errores recurrentes (causas raíz):"
-    if [ -d "$CAUSAL_DIR" ]; then
-        ls "$CAUSAL_DIR"/*_error.json 2>/dev/null | tail -5 | while read f; do
-            local err=$(jq -r '.error' "$f" 2>/dev/null)
-            local cause=$(jq -r '.cause_analysis' "$f" 2>/dev/null)
-            echo "   • $err"
-            echo "     → $cause"
-        done
-    fi
-    
-    # Guardar reflexión en journal
-    local reflection=$(jq -n \
-        --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        --argjson errors "$total_errors" \
-        --argjson success "$total_success" \
-        --argjson patterns "$total_patterns" \
-        --argjson insights "$total_insights" \
-        '{
-            timestamp: $ts,
-            type: "reflection",
-            summary: {
-                errors: $errors,
-                success: $success,
-                patterns: $patterns,
-                insights: $insights
-            }
-        }')
-    
-    echo "$reflection" >> "$JOURNAL_FILE"
-}
+    return 0
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 6. COMPREHEND — Verificar si realmente comprendo algo
-# ══════════════════════════════════════════════════════════════════════════════
-comprehend() {
-    local topic="${1:-}"
+def status():
+    print(f"{Colors.CYAN}🧠 Estado de aprendizaje autónomo:{Colors.NC}\n")
     
-    [ -z "$topic" ] && echo "Uso: nexo-learn comprehend <tema>" && exit 1
+    observations = load_jsonl(OBSERVATIONS_FILE)
+    print(f"📝 Observaciones: {len(observations)}")
     
-    echo -e "${C}🧠 Verificando comprensión de: $topic${NC}"
-    echo ""
+    hypotheses = load_json(HYPOTHESIS_FILE, [])
+    validated = sum(1 for h in hypotheses if h.get("status") == "validated")
+    print(f"💡 Hipótesis: {len(hypotheses)} ({validated} validadas)")
     
-    # Cargar comprensión existente
-    local comprehension="{}"
-    if [ -f "$COMPREHENSION_FILE" ]; then
-        comprehension=$(cat "$COMPREHENSION_FILE")
-    fi
+    comprehension = load_json(COMPREHENSION_FILE)
+    print(f"🧠 Temas comprendidos: {len(comprehension)}")
     
-    # Niveles de comprensión
-    echo "Niveles de comprensión:"
-    echo "  1. 📝 MEMORIZÉ — Recuerdo el hecho"
-    echo "  2. 🔗 CONEXIÓN — Sé cómo se relaciona con otros conceptos"
-    echo "  3. ⚡ APLIQUÉ — Puedo usarlo en un contexto nuevo"
-    echo "  4. 🎯 EXPLIQUÉ — Puedo enseñárselo a alguien"
-    echo "  5. 🔧 CREÉ — Puedo crear algo nuevo con ese conocimiento"
-    echo ""
-    echo -n "¿En qué nivel estoy? (1-5): "
-    read -r level
+    causal_files = list(CAUSAL_DIR.glob("*_error.json"))
+    print(f"🔍 Análisis causales: {len(causal_files)}")
     
-    # Guardar nivel de comprensión
-    comprehension=$(echo "$comprehension" | jq \
-        --arg topic "$topic" \
-        --arg level "$level" \
-        --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        '.[$topic] = {
-            level: ($level | tonumber),
-            tested_at: $ts,
-            next_review: (now + 86400 | todate)
-        }')
+    if JOURNAL_FILE.exists():
+        entries = load_jsonl(JOURNAL_FILE)
+        print(f"📔 Entradas en diario: {len(entries)}")
     
-    echo "$comprehension" | jq . > "$COMPREHENSION_FILE"
-    
-    echo ""
-    case $level in
-        1) echo "📝 Memorización base. Necesito practicar para subir." ;;
-        2) echo "🔗 Estoy conectando conceptos. Seguir explorando." ;;
-        3) echo "⚡ Buena aplicación práctica. Intentar escenarios nuevos." ;;
-        4) echo "🎯 Comprensión sólida. Puedo explicar con confianza." ;;
-        5) echo "🏆 Maestría. Puedo crear y enseñar." ;;
-    esac
-}
+    return 0
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 7. TEACH — Aprender algo nuevo de forma profunda
-# ══════════════════════════════════════════════════════════════════════════════
-teach() {
-    local topic="${1:-}"
-    local source="${2:-}"
-    
-    [ -z "$topic" ] && echo "Uso: nexo-learn teach <tema> [fuente]" && exit 1
-    
-    echo -e "${C}📚 Aprendiendo: $topic${NC}"
-    echo ""
-    
-    # Paso 1: ¿Qué sé ya?
-    echo "Paso 1: ¿Qué sé sobre esto?"
-    echo "  (verificar knowledge graph)"
-    if command -v nexo-graph &>/dev/null; then
-        local existing=$(nexo-graph search "$topic" 2>/dev/null | head -3)
-        if [ -n "$existing" ]; then
-            echo "  Ya tengo información:"
-            echo "$existing" | head -3
-        else
-            echo "  Es nuevo para mí."
-        fi
-    fi
-    
-    echo ""
-    echo "Paso 2: ¿Qué quiero aprender?"
-    echo "  • Definición fundamental"
-    echo "  • Cómo funciona internamente"
-    echo "  • Casos de uso prácticos"
-    echo "  • Errores comunes"
-    echo "  • Relación con otros conceptos"
-    
-    echo ""
-    echo "Paso 3: Verificar comprensión"
-    echo "  Después de aprender, ejecutá:"
-    echo "  nexo-learn comprehend \"$topic\""
-    
-    # Registrar en journal
-    local entry=$(jq -n \
-        --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        --arg topic "$topic" \
-        --arg source "$source" \
-        '{
-            timestamp: $ts,
-            type: "learning_session",
-            topic: $topic,
-            source: $source,
-            status: "in_progress"
-        }')
-    
-    echo "$entry" >> "$JOURNAL_FILE"
-    
-    echo ""
-    echo "🎓 Sesión de aprendizaje iniciada para: $topic"
-}
+def show_help():
+    print("""🧠 Nexo Autonomous Learning System
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 8. JOURNAL — Ver diario de aprendizaje
-# ══════════════════════════════════════════════════════════════════════════════
-journal() {
-    local lines="${1:-20}"
-    
-    echo -e "${C}📔 Diario de aprendizaje:${NC}"
-    echo ""
-    
-    if [ -f "$JOURNAL_FILE" ]; then
-        tail -n "$lines" "$JOURNAL_FILE" | jq -r '
-            "\(.timestamp) | \(.type) | \(.topic // .summary // "reflexión")"
-        ' 2>/dev/null
-    else
-        echo "El diario está vacío. Empezá a aprender con:"
-        echo "  nexo-learn observe ..."
-        echo "  nexo-learn teach ..."
-    fi
-}
+Uso:
+  nexo-learn observe <tipo> <desc>     Registrar evento
+  nexo-learn hypothesize <hip>         Formular hipótesis
+  nexo-learn test <id> <exp> <res>     Probar hipótesis
+  nexo-learn reflect [periodo]         Reflexionar
+  nexo-learn comprehend <tema>         Verificar comprensión
+  nexo-learn teach <tema> [fuente]     Aprender algo nuevo
+  nexo-learn journal [líneas]          Ver diario
+  nexo-learn status                    Ver estado""")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 9. STATUS — Ver estado de aprendizaje
-# ══════════════════════════════════════════════════════════════════════════════
-status() {
-    echo -e "${C}🧠 Estado de aprendizaje autónomo:${NC}"
-    echo ""
+def main():
+    args = sys.argv[1:]
+    cmd = args[0] if args else "status"
     
-    # Observaciones
-    local obs_count=0
-    [ -f "$OBSERVATIONS_FILE" ] && obs_count=$(wc -l < "$OBSERVATIONS_FILE")
-    echo "📝 Observaciones: $obs_count"
-    
-    # Hipótesis
-    if [ -f "$HYPOTHESIS_FILE" ]; then
-        local hyp_count=$(jq 'length' "$HYPOTHESIS_FILE")
-        local validated=$(jq '[.[] | select(.status == "validated")] | length' "$HYPOTHESIS_FILE")
-        echo "💡 Hipótesis: $hyp_count ($validated validadas)"
-    else
-        echo "💡 Hipótesis: 0"
-    fi
-    
-    # Comprensión
-    if [ -f "$COMPREHENSION_FILE" ]; then
-        local comp_count=$(jq 'length' "$COMPREHENSION_FILE")
-        local avg_level=$(jq '[.[].level] | add / length' "$COMPREHENSION_FILE" 2>/dev/null || echo "0")
-        echo "🧠 Temas comprendidos: $comp_count (nivel promedio: $avg_level)"
-    else
-        echo "🧠 Temas comprendidos: 0"
-    fi
-    
-    # Análisis causales
-    if [ -d "$CAUSAL_DIR" ]; then
-        local causal_count=$(ls "$CAUSAL_DIR"/*_error.json 2>/dev/null | wc -l)
-        echo "🔍 Análisis causales: $causal_count"
-    else
-        echo "🔍 Análisis causales: 0"
-    fi
-    
-    # Journal entries
-    if [ -f "$JOURNAL_FILE" ]; then
-        local journal_count=$(wc -l < "$JOURNAL_FILE")
-        echo "📔 Entradas en diario: $journal_count"
-    else
-        echo "📔 Entradas en diario: 0"
-    fi
-}
+    if cmd in ["--help", "-h"]:
+        show_help()
+        return 0
+    elif cmd == "observe":
+        return observe(args[1] if len(args) > 1 else "",
+                      args[2] if len(args) > 2 else "",
+                      args[3] if len(args) > 3 else "",
+                      args[4] if len(args) > 4 else "")
+    elif cmd == "hypothesize":
+        conf = float(args[2]) if len(args) > 2 else 0.5
+        return hypothesize(args[1] if len(args) > 1 else "", conf)
+    elif cmd == "test":
+        return test_hypothesis(args[1] if len(args) > 1 else "",
+                              args[2] if len(args) > 2 else "",
+                              args[3] if len(args) > 3 else "")
+    elif cmd == "reflect":
+        return reflect()
+    elif cmd == "comprehend":
+        return comprehend(args[1] if len(args) > 1 else "")
+    elif cmd == "teach":
+        return teach(args[1] if len(args) > 1 else "",
+                    args[2] if len(args) > 2 else "")
+    elif cmd == "journal":
+        lines = int(args[1]) if len(args) > 1 else 20
+        return journal(lines)
+    elif cmd == "status":
+        return status()
+    else:
+        show_help()
+        return 1
 
-# ══════════════════════════════════════════════════════════════════════════════
-# MAIN
-# ══════════════════════════════════════════════════════════════════════════════
-case "${1:-status}" in
-    observe)
-        shift
-        observe "$@"
-        ;;
-    hypothesize)
-        shift
-        hypothesize "$@"
-        ;;
-    test)
-        shift
-        test_hypothesis "$@"
-        ;;
-    reflect)
-        shift
-        reflect "$@"
-        ;;
-    comprehend)
-        shift
-        comprehend "$@"
-        ;;
-    teach)
-        shift
-        teach "$@"
-        ;;
-    journal)
-        shift
-        journal "$@"
-        ;;
-    status)
-        status
-        ;;
-    *)
-        echo "Uso: nexo-learn <comando>"
-        echo ""
-        echo "Comandos:"
-        echo "  observe <tipo> <desc>   → Registrar evento"
-        echo "  hypothesize <hip>       → Formular hipótesis"
-        echo "  test <id> <exp> <res>   → Probar hipótesis"
-        echo "  reflect [periodo]       → Reflexionar"
-        echo "  comprehend <tema>       → Verificar comprensión"
-        echo "  teach <tema> [fuente]   → Aprender algo nuevo"
-        echo "  journal [líneas]        → Ver diario"
-        echo "  status                  → Ver estado"
-        ;;
-esac
+if __name__ == "__main__":
+    sys.exit(main())

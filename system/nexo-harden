@@ -1,255 +1,203 @@
-#!/bin/bash
-# 🛡️ Nexo Security Hardener
-# Aplica configuraciones básicas de seguridad para Linux
-# Uso: sudo ./nexo-harden [--check|--apply|--status]
-#
-# Modos:
-#   --check   Solo mostrar qué cambios se harían (dry-run)
-#   --apply   Aplicar hardening (por defecto)
-#   --status  Mostrar estado actual de seguridad
+#!/usr/bin/env python3
+"""
+nexo-harden — Hardening de seguridad para Linux
+"""
+import os
+import sys
+import subprocess
+import shutil
+from pathlib import Path
 
-set -euo pipefail
+class Colors:
+    RED = '\033[0;31m'
+    GREEN = '\033[0;32m'
+    YELLOW = '\033[1;33m'
+    BLUE = '\033[0;34m'
+    NC = '\033[0m'
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+def info(msg): print(f"{Colors.BLUE}[INFO]{Colors.NC} {msg}")
+def ok(msg): print(f"{Colors.GREEN}[OK]{Colors.NC} {msg}")
+def warn(msg): print(f"{Colors.YELLOW}[WARN]{Colors.NC} {msg}")
+def err(msg): print(f"{Colors.RED}[ERR]{Colors.NC} {msg}", file=sys.stderr)
 
-info()  { echo -e "${BLUE}[INFO]${NC} $*"; }
-ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
-warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
-err()   { echo -e "${RED}[ERR]${NC} $*"; }
+def run_cmd(cmd, capture=True):
+    return subprocess.run(cmd, capture_output=capture, text=True)
 
-MODE="${1:-apply}"
-DRY_RUN=false
-[[ "$MODE" == "--check" ]] && DRY_RUN=true
-
-if [[ "$MODE" == "--status" ]]; then
-    echo "🛡️  Nexo Security Status"
-    echo "========================"
-    echo ""
+def show_status():
+    print("🛡️  Nexo Security Status")
+    print("=" * 40)
     
     # Kernel
-    echo "--- Kernel ---"
-    for param in \
-        "net.ipv4.tcp_syncookies=1" \
-        "net.ipv4.conf.all.accept_source_route=0" \
-        "net.ipv4.conf.all.accept_redirects=0" \
-        "net.ipv4.icmp_echo_ignore_all=1" \
-        "net.ipv4.conf.all.log_martians=1" \
-        "kernel.dmesg_restrict=1" \
-        "kernel.kptr_restrict=2"; do
-        key="${param%%=*}"
-        expected="${param#*=}"
-        current=$(sysctl -n "$key" 2>/dev/null || echo "no disponible")
-        if [[ "$current" == "$expected" ]]; then
-            ok "$key = $current"
-        else
-            warn "$key = $current (esperado: $expected)"
-        fi
-    done
+    print("\n--- Kernel ---")
+    kernel_params = {
+        "net.ipv4.tcp_syncookies": "1",
+        "net.ipv4.conf.all.accept_source_route": "0",
+        "net.ipv4.conf.all.accept_redirects": "0",
+        "net.ipv4.icmp_echo_ignore_all": "1",
+        "kernel.dmesg_restrict": "1",
+        "kernel.kptr_restrict": "2",
+    }
     
-    echo ""
-    echo "--- SSH ---"
-    if [[ -f /etc/ssh/sshd_config ]]; then
-        grep -q "PermitRootLogin no" /etc/ssh/sshd_config 2>/dev/null && \
-            ok "Root login: deshabilitado" || warn "Root login: HABILITADO ⚠️"
-        grep -q "PasswordAuthentication no" /etc/ssh/sshd_config 2>/dev/null && \
-            ok "Password auth: deshabilitado" || warn "Password auth: Habilitado"
-    else
-        warn "SSH no instalado o no configurado"
-    fi
+    for key, expected in kernel_params.items():
+        result = run_cmd(["sysctl", "-n", key])
+        current = result.stdout.strip() if result.returncode == 0 else "no disponible"
+        if current == expected:
+            ok(f"{key} = {current}")
+        else:
+            warn(f"{key} = {current} (esperado: {expected})")
     
-    echo ""
-    echo "--- Firewall ---"
-    if command -v ufw &>/dev/null; then
-        ufw status 2>/dev/null | head -3
-    elif command -v iptables &>/dev/null; then
-        iptables -L INPUT -n 2>/dev/null | head -5
-    else
-        warn "No se detectó firewall"
-    fi
+    # SSH
+    print("\n--- SSH ---")
+    ssh_config = Path("/etc/ssh/sshd_config")
+    if ssh_config.exists():
+        content = ssh_config.read_text()
+        if "PermitRootLogin no" in content:
+            ok("Root login: deshabilitado")
+        else:
+            warn("Root login: HABILITADO ⚠️")
     
-    echo ""
-    echo "--- Passwords en texto plano ---"
-    FILES_WITH_PASS=$(grep -rl "SUDO_PASS_PLACEHOLDER\|TU_PASSWORD\|password.*sudo" \
-        "$HOME/.local/bin/" "$HOME/.opencode/" 2>/dev/null || true)
-    if [[ -z "$FILES_WITH_PASS" ]]; then
-        ok "No se encontraron contraseñas en texto plano"
-    else
-        err "Contraseñas en texto plano encontradas:"
-        echo "$FILES_WITH_PASS" | while IFS= read -r f; do echo "  ⚠️  $f"; done
-    fi
+    # Firewall
+    print("\n--- Firewall ---")
+    if shutil.which("ufw"):
+        run_cmd(["ufw", "status"])
+    elif shutil.which("iptables"):
+        run_cmd(["iptables", "-L", "INPUT", "-n"])
+    else:
+        warn("No se detectó firewall")
     
-    echo ""
-    echo "--- Sudoers ---"
-    if [[ -f /etc/sudoers.d/temp-monitor ]]; then
-        ok "Sudoers Nexo instalado"
-        cat /etc/sudoers.d/temp-monitor | head -5
-    else
-        warn "Sudoers Nexo NO instalado"
-    fi
+    # Sudoers
+    print("\n--- Sudoers ---")
+    sudoers = Path("/etc/sudoers.d/temp-monitor")
+    if sudoers.exists():
+        ok("Sudoers Nexo instalado")
+    else:
+        warn("Sudoers Nexo NO instalado")
+
+def apply_hardening(dry_run=False):
+    print("=" * 50)
+    print("  🛡️  Nexo Security Hardener")
+    print("=" * 50)
     
-    exit 0
-fi
-
-# ── APLICAR HARDENING ─────────────────────────────────────────────
-
-echo "========================================"
-echo "  🛡️  Nexo Security Hardener"
-echo "========================================"
-[[ "$DRY_RUN" == true ]] && echo "  Modo: --check (solo simulación)"
-echo ""
-
-if [[ "$DRY_RUN" == false ]] && [[ "$(id -u)" -ne 0 ]]; then
-    err "Ejecutá con sudo: sudo ./nexo-harden --apply"
-    exit 1
-fi
-
-# ── 1. Kernel sysctl hardening ─────────────────────────────────────
-info "Aplicando kernel hardening..."
-
-SYSCTL_CONF="/etc/sysctl.d/99-nexo-hardening.conf"
-SYSCTL_RULES=$(cat <<'EOF'
-# Nexo Security Hardening — Kernel parameters
-# Red
+    if dry_run:
+        print("  Modo: --check (solo simulación)")
+    print()
+    
+    if not dry_run and os.geteuid() != 0:
+        err("Ejecutá con sudo: sudo nexo-harden --apply")
+        return 1
+    
+    # 1. Kernel sysctl
+    info("Aplicando kernel hardening...")
+    sysctl_conf = Path("/etc/sysctl.d/99-nexo-hardening.conf")
+    sysctl_rules = """# Nexo Security Hardening
 net.ipv4.tcp_syncookies = 1
-net.ipv4.tcp_syn_retries = 2
-net.ipv4.tcp_synack_retries = 2
-net.ipv4.tcp_max_syn_backlog = 2048
 net.ipv4.conf.all.accept_source_route = 0
-net.ipv4.conf.default.accept_source_route = 0
 net.ipv4.conf.all.accept_redirects = 0
-net.ipv4.conf.default.accept_redirects = 0
-net.ipv4.conf.all.secure_redirects = 0
-net.ipv4.conf.default.secure_redirects = 0
-net.ipv4.conf.all.send_redirects = 0
-net.ipv4.conf.default.send_redirects = 0
 net.ipv4.icmp_echo_ignore_all = 1
-net.ipv4.icmp_ignore_bogus_error_responses = 1
-net.ipv4.conf.all.log_martians = 1
-net.ipv4.conf.default.log_martians = 1
-net.ipv4.tcp_rfc1337 = 1
-
-# Kernell
 kernel.dmesg_restrict = 1
 kernel.kptr_restrict = 2
-kernel.sysrq = 0
-kernel.unprivileged_bpf_disabled = 1
-net.core.bpf_jit_harden = 2
-
-# IPv6 (deshabilitar si no se usa)
-net.ipv6.conf.all.disable_ipv6 = 1
-net.ipv6.conf.default.disable_ipv6 = 1
-EOF
-)
-
-if [[ "$DRY_RUN" == true ]]; then
-    info "Se crearía: $SYSCTL_CONF"
-    echo "$SYSCTL_RULES" | while IFS= read -r line; do echo "  + $line"; done
-else
-    echo "$SYSCTL_RULES" > "$SYSCTL_CONF"
-    sysctl -p "$SYSCTL_CONF" >/dev/null 2>&1
-    ok "Kernel hardening aplicado ($SYSCTL_CONF)"
-fi
-
-# ── 2. Firewall (UFW) ─────────────────────────────────────────────
-info "Configurando firewall..."
-if command -v ufw &>/dev/null; then
-    if [[ "$DRY_RUN" == true ]]; then
-        info "Se configuraría UFW: deny incoming, allow outgoing"
-    else
-        ufw default deny incoming 2>/dev/null
-        ufw default allow outgoing 2>/dev/null
-        ufw allow ssh 2>/dev/null || true
-        ufw --force enable 2>/dev/null || true
-        ok "Firewall UFW configurado"
-    fi
-elif command -v firewall-cmd &>/dev/null; then
-    if [[ "$DRY_RUN" == true ]]; then
-        info "Se configuraría firewalld"
-    else
-        firewall-cmd --set-default-zone=drop 2>/dev/null || true
-        firewall-cmd --add-service=ssh 2>/dev/null || true
-        firewall-cmd --runtime-to-permanent 2>/dev/null || true
-        ok "Firewall firewalld configurado"
-    fi
-else
-    warn "No se detectó firewall (instalá ufw: sudo apt install ufw)"
-fi
-
-# ── 3. SSH hardening ──────────────────────────────────────────────
-if [[ -f /etc/ssh/sshd_config ]]; then
-    info "Aplicando hardening SSH..."
-    SSH_BACKUP="/etc/ssh/sshd_config.nexo-backup"
+"""
     
-    if [[ "$DRY_RUN" == true ]]; then
-        info "Se modificaría /etc/ssh/sshd_config (backup en $SSH_BACKUP)"
-        info "  PermitRootLogin no"
-        info "  PasswordAuthentication no"
-        info "  MaxAuthTries 3"
-        info "  ClientAliveInterval 300"
-        info "  ClientAliveCountMax 0"
-        info "  Protocol 2"
-    else
-        cp /etc/ssh/sshd_config "$SSH_BACKUP" 2>/dev/null || true
-        # Solo modificar si no están ya configurados
-        grep -q "^PermitRootLogin no" /etc/ssh/sshd_config || \
-            echo "PermitRootLogin no" >> /etc/ssh/sshd_config
-        grep -q "^PasswordAuthentication no" /etc/ssh/sshd_config || \
-            echo "PasswordAuthentication no" >> /etc/ssh/sshd_config
-        grep -q "^MaxAuthTries" /etc/ssh/sshd_config || \
-            echo "MaxAuthTries 3" >> /etc/ssh/sshd_config
-        grep -q "^ClientAliveInterval" /etc/ssh/sshd_config || \
-            echo "ClientAliveInterval 300" >> /etc/ssh/sshd_config
-        grep -q "^ClientAliveCountMax" /etc/ssh/sshd_config || \
-            echo "ClientAliveCountMax 0" >> /etc/ssh/sshd_config
-        grep -q "^Protocol" /etc/ssh/sshd_config || \
-            echo "Protocol 2" >> /etc/ssh/sshd_config
+    if dry_run:
+        info(f"Se crearía: {sysctl_conf}")
+    else:
+        sysctl_conf.write_text(sysctl_rules)
+        run_cmd(["sysctl", "-p", str(sysctl_conf)])
+        ok("Kernel hardening aplicado")
+    
+    # 2. Firewall
+    info("Configurando firewall...")
+    if shutil.which("ufw"):
+        if dry_run:
+            info("Se configuraría UFW")
+        else:
+            run_cmd(["ufw", "default", "deny", "incoming"])
+            run_cmd(["ufw", "default", "allow", "outgoing"])
+            run_cmd(["ufw", "allow", "ssh"])
+            run_cmd(["ufw", "--force", "enable"])
+            ok("Firewall UFW configurado")
+    
+    # 3. SSH
+    ssh_config = Path("/etc/ssh/sshd_config")
+    if ssh_config.exists():
+        info("Aplicando hardening SSH...")
+        if dry_run:
+            info("Se modificaría sshd_config")
+        else:
+            backup = ssh_config.with_suffix(".nexo-backup")
+            shutil.copy2(ssh_config, backup)
+            
+            content = ssh_config.read_text()
+            settings = [
+                "PermitRootLogin no",
+                "PasswordAuthentication no",
+                "MaxAuthTries 3",
+                "ClientAliveInterval 300",
+            ]
+            
+            for setting in settings:
+                key = setting.split()[0]
+                if key not in content:
+                    content += f"\n{setting}"
+            
+            ssh_config.write_text(content)
+            run_cmd(["systemctl", "restart", "sshd"])
+            ok("SSH hardening aplicado")
+    
+    # 4. Permisos
+    info("Verificando permisos...")
+    bin_dir = Path.home() / ".local" / "bin"
+    if bin_dir.exists() and not dry_run:
+        for f in bin_dir.iterdir():
+            if f.is_file():
+                f.chmod(0o755)
         
-        systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
-        ok "SSH hardening aplicado"
-    fi
-else
-    info "SSH no instalado — saltando hardening SSH"
-fi
+        for敏感file in [
+            Path.home() / ".nexo-memory" / "graph.db",
+            Path.home() / ".face_embeddings.pkl",
+        ]:
+            if 敏感file.exists():
+                敏感file.chmod(0o600)
+        
+        ok("Permisos ajustados")
+    
+    print()
+    print("=" * 50)
+    if dry_run:
+        print("  ✅ Simulación completada")
+        print("  Ejecutá: sudo nexo-harden --apply")
+    else:
+        print("  ✅ Hardening aplicado")
+    print("=" * 50)
+    
+    return 0
 
-# ── 4. Verificar permisos de scripts de Nexo ──────────────────────
-info "Verificando permisos de scripts Nexo..."
-BIN_DIR="$HOME/.local/bin"
-if [[ -d "$BIN_DIR" ]]; then
-    if [[ "$DRY_RUN" == true ]]; then
-        info "Se fijarían permisos 755 en $BIN_DIR/* (owner ejecuta, otros solo leen)"
-    else
-        find "$BIN_DIR" -maxdepth 1 -type f -exec chmod 755 {} \; 2>/dev/null
-        # Archivos sensibles solo para el usuario
-        chmod 600 "$HOME/.nexo-memory/graph.db" 2>/dev/null || true
-        chmod 600 "$HOME/.nexo-memory/memory.json" 2>/dev/null || true
-        chmod 600 "$HOME/.face_embeddings.pkl" 2>/dev/null || true
-        ok "Permisos de scripts ajustados"
-    fi
-fi
+def show_help():
+    print("""🛡️  Nexo Security Hardener
+Aplica configuraciones de seguridad para Linux.
 
-# ── 5. Fail2ban (si está instalado) ───────────────────────────────
-if command -v fail2ban-client &>/dev/null; then
-    info "Configurando fail2ban..."
-    if [[ "$DRY_RUN" == true ]]; then
-        info "Se habilitaría fail2ban para SSH"
-    else
-        systemctl enable fail2ban --now 2>/dev/null || true
-        ok "fail2ban activo"
-    fi
-else
-    info "fail2ban no instalado — opcional: sudo apt install fail2ban"
-fi
+Uso:
+  sudo nexo-harden [--check|--apply|--status]
 
-echo ""
-echo "========================================"
-if [[ "$DRY_RUN" == true ]]; then
-    echo "  ✅ Simulación completada"
-    echo "  Ejecutá: sudo ./nexo-harden --apply"
-else
-    echo "  ✅ Hardening aplicado"
-fi
-echo "========================================"
+Modos:
+  --check   Solo mostrar qué cambios se harían (dry-run)
+  --apply   Aplicar hardening (por defecto)
+  --status  Mostrar estado actual""")
+
+def main():
+    args = sys.argv[1:]
+    mode = args[0] if args else "--apply"
+    
+    if mode in ["--help", "-h"]:
+        show_help()
+        return 0
+    elif mode == "--status":
+        show_status()
+        return 0
+    elif mode == "--check":
+        return apply_hardening(dry_run=True)
+    else:
+        return apply_hardening(dry_run=False)
+
+if __name__ == "__main__":
+    sys.exit(main())

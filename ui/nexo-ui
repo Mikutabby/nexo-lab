@@ -1,62 +1,106 @@
-#!/bin/bash
-CMD="${1:-help}"
-case "$CMD" in
-    start)
-        echo "🔷 Iniciando Nexo UI..."
-        nexo-ui-daemon start
-        sleep 1
-        nexo-ui-web --port 7070 &
-        sleep 1
-        nexo-ui-widget &
-        echo "✅ Nexo UI activo"
-        echo "   Web: http://127.0.0.1:7070"
-        echo "   Mini: http://127.0.0.1:7070/mini"
-        echo "   Widget: Conky en escritorio"
-        ;;
-    stop)
-        echo "🔷 Deteniendo Nexo UI..."
-        kill $(pgrep -f "nexo-ui-daemon") 2>/dev/null || true
-        kill $(pgrep -f "app.py.*7070") 2>/dev/null || true
-        kill $(pgrep -f "nexo-widget.conf") 2>/dev/null || true
-        nexo-ui-daemon stop 2>/dev/null || true
-        echo "✅ Nexo UI detenido"
-        ;;
-    status)
-        echo "🔷 Nexo UI — Estado:"
-        nexo-ui-daemon status 2>/dev/null || echo "  Daemon: inactivo"
-        pgrep -f "app.py.*7070" >/dev/null && echo "  Web App: activa" || echo "  Web App: inactiva"
-        pgrep -f "nexo-widget.conf" >/dev/null && echo "  Widget: activo" || echo "  Widget: inactivo"
-        ;;
-    web)
-        nexo-ui-web --port 7070 "$@"
-        ;;
-    widget)
-        nexo-ui-widget
-        ;;
-    daemon)
-        shift
-        nexo-ui-daemon "$@"
-        ;;
-    open)
-        xdg-open "http://127.0.0.1:7070" 2>/dev/null || sensible-browser "http://127.0.0.1:7070" 2>/dev/null || echo "Abrí http://127.0.0.1:7070 en tu navegador"
-        ;;
-    mini)
-        xdg-open "http://127.0.0.1:7070/mini" 2>/dev/null || sensible-browser "http://127.0.0.1:7070/mini" 2>/dev/null || echo "Abrí http://127.0.0.1:7070/mini en tu navegador"
-        ;;
-    help|--help|-h)
-        echo "Uso: nexo-ui <comando>"
-        echo ""
-        echo "  start    Iniciar todo (daemon + web + widget)"
-        echo "  stop     Detener todo"
-        echo "  status   Mostrar estado"
-        echo "  web      Iniciar solo web app"
-        echo "  widget   Iniciar solo widget Conky"
-        echo "  daemon   Controlar daemon (start|stop|status)"
-        echo "  open     Abrir interfaz en navegador"
-        echo "  mini     Abrir versión miniatura"
-        ;;
-    *)
-        echo "Comando desconocido: $CMD"
-        echo "Usá: nexo-ui help"
-        ;;
-esac
+#!/usr/bin/env python3
+"""
+nexo-ui — Control unificado de la interfaz Nexo
+"""
+import os
+import sys
+import subprocess
+import signal
+from pathlib import Path
+
+def run_cmd(cmd):
+    try:
+        return subprocess.run(cmd, capture_output=True)
+    except Exception:
+        return subprocess.CompletedProcess(cmd, 1)
+
+def kill_by_pattern(pattern):
+    try:
+        result = subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True)
+        if result.returncode == 0:
+            for pid in result.stdout.strip().split('\n'):
+                if pid:
+                    os.kill(int(pid), signal.SIGTERM)
+    except Exception:
+        pass
+
+def cmd_start():
+    print("🔷 Iniciando Nexo UI...")
+    subprocess.run(["nexo-ui-daemon", "start"])
+    time.sleep(1)
+    subprocess.Popen(["nexo-ui-web", "--port", "7070"])
+    time.sleep(1)
+    subprocess.Popen(["nexo-ui-widget"])
+    print("✅ Nexo UI activo")
+    print("   Web: http://127.0.0.1:7070")
+    print("   Mini: http://127.0.0.1:7070/mini")
+    print("   Widget: Conky en escritorio")
+
+def cmd_stop():
+    print("🔷 Deteniendo Nexo UI...")
+    kill_by_pattern("nexo-ui-daemon")
+    kill_by_pattern("app.py.*7070")
+    kill_by_pattern("nexo-widget.conf")
+    subprocess.run(["nexo-ui-daemon", "stop"], capture_output=True)
+    print("✅ Nexo UI detenido")
+
+def cmd_status():
+    print("🔷 Nexo UI — Estado:")
+    result = subprocess.run(["nexo-ui-daemon", "status"], capture_output=True, text=True)
+    print(f"  Daemon: {'activo' if result.returncode == 0 else 'inactivo'}")
+    
+    result = subprocess.run(["pgrep", "-f", "app.py.*7070"], capture_output=True)
+    print(f"  Web App: {'activa' if result.returncode == 0 else 'inactiva'}")
+    
+    result = subprocess.run(["pgrep", "-f", "nexo-widget.conf"], capture_output=True)
+    print(f"  Widget: {'activo' if result.returncode == 0 else 'inactivo'}")
+
+def cmd_open(url="http://127.0.0.1:7070"):
+    try:
+        subprocess.run(["xdg-open", url], capture_output=True)
+    except Exception:
+        print(f"Abrí {url} en tu navegador")
+
+def show_help():
+    print("""Uso: nexo-ui <comando>
+
+  start    Iniciar todo (daemon + web + widget)
+  stop     Detener todo
+  status   Mostrar estado
+  web      Iniciar solo web app
+  widget   Iniciar solo widget Conky
+  daemon   Controlar daemon (start|stop|status)
+  open     Abrir interfaz en navegador
+  mini     Abrir versión miniatura
+  help     Esta ayuda""")
+
+def main():
+    import time
+    
+    args = sys.argv[1:]
+    cmd = args[0] if args else "help"
+    
+    if cmd == "start":
+        cmd_start()
+    elif cmd == "stop":
+        cmd_stop()
+    elif cmd == "status":
+        cmd_status()
+    elif cmd == "web":
+        subprocess.run(["nexo-ui-web", "--port", "7070"] + args[1:])
+    elif cmd == "widget":
+        subprocess.run(["nexo-ui-widget"])
+    elif cmd == "daemon":
+        subprocess.run(["nexo-ui-daemon"] + args[1:])
+    elif cmd == "open":
+        cmd_open()
+    elif cmd == "mini":
+        cmd_open("http://127.0.0.1:7070/mini")
+    elif cmd in ["help", "--help", "-h"]:
+        show_help()
+    else:
+        print(f"Comando desconocido: {cmd}")
+        print("Usá: nexo-ui help")
+
+if __name__ == "__main__":
+    main()

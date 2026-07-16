@@ -1,418 +1,236 @@
-#!/bin/bash
-# 🔬 Nexo Deep Learning Engine
-# Análisis causal profundo — no solo QUÉ pasó, sino POR QUÉ
-#
-# Uso:
-#   nexo-deep analyze <file>     → Análisis causal profundo de un error
-#   nexo-deep pattern <type>     → Buscar patrones causales
-#   nexo-deep predict <situation> → Predecir qué podría fallar
-#   nexo-deep simulate <scenario> → Simular escenario mental
-#   nexo-deep explain            → Explicar lo que aprendí
+#!/usr/bin/env python3
+"""
+nexo-deep — Motor de Aprendizaje Profundo de Nexo
+"""
+import os
+import sys
+import json
+from pathlib import Path
+from datetime import datetime
 
-set -uo pipefail
+MEMORY_DIR = Path.home() / ".nexo-memory"
+DEEP_DIR = MEMORY_DIR / "learned" / "deep"
+CAUSAL_GRAPH = DEEP_DIR / "causal_graph.json"
+PREDICTIONS = DEEP_DIR / "predictions.jsonl"
 
-MEMORY_DIR="$HOME/.nexo-memory"
-DEEP_DIR="$MEMORY_DIR/learned/deep"
-CAUSAL_GRAPH="$DEEP_DIR/causal_graph.json"
-KNOWLEDGE_BASE="$DEEP_DIR/knowledge_base.json"
-PREDICTIONS="$DEEP_DIR/predictions.jsonl"
+DEEP_DIR.mkdir(parents=True, exist_ok=True)
 
-mkdir -p "$DEEP_DIR"
+class Colors:
+    RED = '\033[0;31m'
+    YELLOW = '\033[1;33m'
+    CYAN = '\033[0;36m'
+    GREEN = '\033[0;32m'
+    NC = '\033[0m'
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 1. ANALYZE — Análisis causal profundo de un error
-# ══════════════════════════════════════════════════════════════════════════════
-analyze() {
-    local source="${1:-}"
-    local error_content="${2:-}"
+def load_json(filepath, default=None):
+    if filepath.exists():
+        with open(filepath) as f:
+            return json.load(f)
+    return default or []
+
+def save_json(filepath, data):
+    with open(filepath, "w") as f:
+        json.dump(data, f, indent=2)
+
+def analyze(source, error_content=""):
+    if not source:
+        print("Uso: nexo-deep analyze <archivo_error> [contenido_error]")
+        return 1
     
-    [ -z "$source" ] && echo "Uso: nexo-deep analyze <archivo_error> [contenido_error]" && exit 1
-    
-    echo "🔬 Análisis causal profundo de: $source"
-    echo ""
+    print(f"{Colors.CYAN}🔬 Análisis causal profundo de: {source}{Colors.NC}\n")
     
     # Leer contenido
-    local content=""
-    if [ -f "$source" ]; then
-        content=$(cat "$source")
-    else
-        content="$error_content"
-    fi
+    if Path(source).exists():
+        content = Path(source).read_text()
+    else:
+        content = error_content
     
-    # ── Nivel 1: Error Sintáctico ──
-    local syntax_issues=0
-    if echo "$content" | grep -qiE "syntax|unexpected|parse|indent"; then
-        ((syntax_issues++))
-        echo "  🔴 Error sintáctico detectado"
-        # Analizar qué tipo
-        if echo "$content" | grep -qi "indent"; then
-            echo "     → Problema de indentación"
-        elif echo "$content" | grep -qi "unexpected"; then
-            echo "     → Token inesperado"
-        elif echo "$content" | grep -qi "unterminated"; then
-            echo "     → String/sentencia sin cerrar"
-        fi
-    fi
+    # Analizar niveles de error
+    analysis = {"syntax": 0, "semantic": 0, "runtime": 0, "logic": 0}
     
-    # ── Nivel 2: Error Semántico ──
-    local semantic_issues=0
-    if echo "$content" | grep -qiE "undefined|not defined|not found|does not exist"; then
-        ((semantic_issues++))
-        echo "  🟡 Error semántico detectado"
-        if echo "$content" | grep -qi "undefined variable"; then
-            echo "     → Variable no definida (uso antes de declaración?)"
-        elif echo "$content" | grep -qi "not found"; then
-            echo "     → Referencia a algo que no existe"
-        fi
-    fi
+    # Nivel 1: Sintáctico
+    syntax_patterns = ["syntax", "unexpected", "parse", "indent"]
+    if any(p in content.lower() for p in syntax_patterns):
+        analysis["syntax"] += 1
+        print("  🔴 Error sintáctico detectado")
     
-    # ── Nivel 3: Error de Runtime ──
-    local runtime_issues=0
-    if echo "$content" | grep -qiE "permission|denied|access|timeout|connection|refused"; then
-        ((runtime_issues++))
-        echo "  🟠 Error de runtime detectado"
-        if echo "$content" | grep -qi "permission\|denied"; then
-            echo "     → Falta permiso (verificar sudoers, ownership)"
-        elif echo "$content" | grep -qi "timeout\|connection"; then
-            echo "     → Problema de red/conectividad"
-        fi
-    fi
+    # Nivel 2: Semántico
+    semantic_patterns = ["undefined", "not defined", "not found", "does not exist"]
+    if any(p in content.lower() for p in semantic_patterns):
+        analysis["semantic"] += 1
+        print("  🟡 Error semántico detectado")
     
-    # ── Nivel 4: Error Lógico ──
-    local logic_issues=0
-    if echo "$content" | grep -qiE "infinite loop\|stack overflow\|memory\|oom"; then
-        ((logic_issues++))
-        echo "  🔴 Error lógico detectado"
-        if echo "$content" | grep -qi "infinite\|loop"; then
-            echo "     → Bucle infinito (falta condición de salida?)"
-        elif echo "$content" | grep -qi "memory\|oom"; then
-            echo "     → Fuga de memoria (objeto no se libera?)"
-        fi
-    fi
+    # Nivel 3: Runtime
+    runtime_patterns = ["permission", "denied", "access", "timeout", "connection", "refused"]
+    if any(p in content.lower() for p in runtime_patterns):
+        analysis["runtime"] += 1
+        print("  🟠 Error de runtime detectado")
     
-    # ── Calcular severidad ──
-    local total=$((syntax_issues + semantic_issues + runtime_issues + logic_issues))
-    local severity="baja"
-    if [ $total -ge 3 ]; then severity="crítica"
-    elif [ $total -ge 2 ]; then severity="alta"
-    elif [ $total -ge 1 ]; then severity="media"
-    fi
+    # Nivel 4: Lógico
+    logic_patterns = ["infinite", "loop", "memory", "oom"]
+    if any(p in content.lower() for p in logic_patterns):
+        analysis["logic"] += 1
+        print("  🔴 Error lógico detectado")
     
-    echo ""
-    echo "📊 Resumen del análisis:"
-    echo "   Sintáctico: $syntax_issues"
-    echo "   Semántico: $semantic_issues"
-    echo "   Runtime: $runtime_issues"
-    echo "   Lógico: $logic_issues"
-    echo "   Severidad: $severity"
+    # Calcular severidad
+    total = sum(analysis.values())
+    severity = "baja"
+    if total >= 3: severity = "crítica"
+    elif total >= 2: severity = "alta"
+    elif total >= 1: severity = "media"
     
-    # ── Generar solución ──
-    echo ""
-    echo "💡 Posibles soluciones:"
+    print(f"\n📊 Resumen:")
+    print(f"   Sintáctico: {analysis['syntax']}")
+    print(f"   Semántico: {analysis['semantic']}")
+    print(f"   Runtime: {analysis['runtime']}")
+    print(f"   Lógico: {analysis['logic']}")
+    print(f"   Severidad: {severity}")
     
-    if [ $syntax_issues -gt 0 ]; then
-        echo "   → Revisar sintaxis, indentación, paréntesis/corchetes"
-    fi
-    if [ $semantic_issues -gt 0 ]; then
-        echo "   → Verificar que variables/funciones existan antes de usar"
-    fi
-    if [ $runtime_issues -gt 0 ]; then
-        echo "   → Verificar permisos, conectividad, recursos del sistema"
-    fi
-    if [ $logic_issues -gt 0 ]; then
-        echo "   → Revisar lógica del algoritmo, condiciones de salida"
-    fi
+    # Guardar en grafo causal
+    entry = {
+        "source": source,
+        "severity": severity,
+        "analysis": analysis,
+        "content_preview": content[:500],
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "resolved": False
+    }
     
-    # ── Guardar en grafo causal ──
-    local entry=$(jq -n \
-        --arg src "$source" \
-        --arg sev "$severity" \
-        --argjson syn "$syntax_issues" \
-        --argjson sem "$semantic_issues" \
-        --argjson run "$runtime_issues" \
-        --argjson log "$logic_issues" \
-        --arg content "${content:0:500}" \
-        '{
-            source: $src,
-            severity: $sev,
-            analysis: {
-                syntax: $syn,
-                semantic: $sem,
-                runtime: $run,
-                logic: $log
-            },
-            content_preview: $content,
-            timestamp: now | todate,
-            resolved: false
-        }')
+    graph = load_json(CAUSAL_GRAPH, [])
+    graph.append(entry)
+    save_json(CAUSAL_GRAPH, graph)
     
-    # Agregar al grafo causal
-    local graph="[]"
-    if [ -f "$CAUSAL_GRAPH" ]; then
-        graph=$(cat "$CAUSAL_GRAPH")
-    fi
-    graph=$(echo "$graph" | jq --argjson entry "$entry" '. + [$entry]')
-    echo "$graph" | jq . > "$CAUSAL_GRAPH"
-    
-    echo ""
-    echo "✅ Análisis guardado en grafo causal"
-}
+    print(f"\n✅ Análisis guardado en grafo causal")
+    return 0
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 2. PATTERN — Buscar patrones causales recurrentes
-# ══════════════════════════════════════════════════════════════════════════════
-pattern() {
-    local filter="${1:-all}"
+def pattern():
+    print(f"{Colors.CYAN}🔍 Buscando patrones causales...{Colors.NC}\n")
     
-    echo "🔍 Buscando patrones causales..."
-    echo ""
-    
-    if [ ! -f "$CAUSAL_GRAPH" ]; then
-        echo "No hay análisis causales registrados."
+    graph = load_json(CAUSAL_GRAPH, [])
+    if not graph:
+        print("No hay análisis causales registrados.")
         return 0
-    fi
     
-    # Contar por tipo de error
-    local total=$(jq 'length' "$CAUSAL_GRAPH")
-    local syntax=$(jq '[.[] | select(.analysis.syntax > 0)] | length' "$CAUSAL_GRAPH")
-    local semantic=$(jq '[.[] | select(.analysis.semantic > 0)] | length' "$CAUSAL_GRAPH")
-    local runtime=$(jq '[.[] | select(.analysis.runtime > 0)] | length' "$CAUSAL_GRAPH")
-    local logic=$(jq '[.[] | select(.analysis.logic > 0)] | length' "$CAUSAL_GRAPH")
+    total = len(graph)
+    syntax = sum(1 for g in graph if g.get("analysis", {}).get("syntax", 0) > 0)
+    semantic = sum(1 for g in graph if g.get("analysis", {}).get("semantic", 0) > 0)
+    runtime = sum(1 for g in graph if g.get("analysis", {}).get("runtime", 0) > 0)
+    logic = sum(1 for g in graph if g.get("analysis", {}).get("logic", 0) > 0)
     
-    echo "📊 Distribución de errores (total: $total):"
-    echo "   Sintáctico: $syntax ($(( syntax * 100 / (total + 1) ))%)"
-    echo "   Semántico: $semantic ($(( semantic * 100 / (total + 1) ))%)"
-    echo "   Runtime: $runtime ($(( runtime * 100 / (total + 1) ))%)"
-    echo "   Lógico: $logic ($(( logic * 100 / (total + 1) ))%)"
-    echo ""
+    print(f"📊 Distribución de errores (total: {total}):")
+    print(f"   Sintáctico: {syntax} ({syntax * 100 // max(total, 1)}%)")
+    print(f"   Semántico: {semantic} ({semantic * 100 // max(total, 1)}%)")
+    print(f"   Runtime: {runtime} ({runtime * 100 // max(total, 1)}%)")
+    print(f"   Lógico: {logic} ({logic * 100 // max(total, 1)}%)")
     
     # Detectar patrón dominante
-    local max_type=""
-    local max_count=0
+    counts = {"sintáctico": syntax, "semántico": semantic, "runtime": runtime, "lógico": logic}
+    max_type = max(counts, key=counts.get)
+    max_count = counts[max_type]
     
-    if [ $syntax -gt $max_count ]; then max_count=$syntax; max_type="sintáctico"; fi
-    if [ $semantic -gt $max_count ]; then max_count=$semantic; max_type="semántico"; fi
-    if [ $runtime -gt $max_count ]; then max_count=$runtime; max_type="runtime"; fi
-    if [ $logic -gt $max_count ]; then max_count=$logic; max_type="lógico"; fi
+    if max_count > 0:
+        print(f"\n🎯 Patrón dominante: {max_type} ({max_count} ocurrencias)")
     
-    if [ -n "$max_type" ]; then
-        echo "🎯 Patrón dominante: $max_type ($max_count ocurrencias)"
-        echo ""
-        echo "💡 Recomendación:"
-        case $max_type in
-            sintáctico)
-                echo "   Tuve muchos errores de sintaxis. Debería:"
-                echo "   - Usar un linter automáticamente antes de ejecutar"
-                echo "   - Verificar indentación siempre"
-                echo "   - Usar paréntesis/paréntesis consistentes"
-                ;;
-            semántico)
-                echo "   Tuve muchos errores semánticos. Debería:"
-                echo "   - Verificar que variables existan antes de usarlas"
-                echo "   - Usar 'set -u' en bash para detectar variables no definidas"
-                echo "   - Revisar imports antes de ejecutar"
-                ;;
-            runtime)
-                echo "   Tuve muchos errores de runtime. Debería:"
-                echo "   - Verificar permisos antes de intentar"
-                echo "   - Probar conectividad antes de conexiones"
-                echo "   - Manejar timeouts gracefully"
-                ;;
-            lógico)
-                echo "   Tuve muchos errores lógicos. Debería:"
-                echo "   - Agregar assertions en código crítico"
-                echo "   - Probar con casos extremos"
-                echo "   - Revisar condiciones de salida en bucles"
-                ;;
-        esac
-    fi
-}
+    return 0
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 3. PREDICT — Predecir qué podría fallar
-# ══════════════════════════════════════════════════════════════════════════════
-predict() {
-    local scenario="${1:-}"
+def predict(scenario):
+    if not scenario:
+        print("Uso: nexo-deep predict <escenario>")
+        return 1
     
-    [ -z "$scenario" ] && echo "Uso: nexo-deep predict <escenario>" && exit 1
+    print(f"{Colors.CYAN}🔮 Predicción para: {scenario}{Colors.NC}\n")
     
-    echo "🔮 Predicción para: $scenario"
-    echo ""
+    graph = load_json(CAUSAL_GRAPH, [])
     
-    # Cargar grafo causal
-    local graph="[]"
-    if [ -f "$CAUSAL_GRAPH" ]; then
-        graph=$(cat "$CAUSAL_GRAPH")
-    fi
+    # Contar errores similares
+    similar = sum(1 for g in graph 
+                  if scenario.lower() in g.get("content_preview", "").lower() or
+                     scenario.lower() in g.get("source", "").lower())
     
-    # Buscar errores similares en historial
-    local similar=$(echo "$graph" | jq -r --arg s "$scenario" '
-        [.[] | select(
-            (.content_preview | ascii_downcase | contains($s | ascii_downcase)) or
-            (.source | ascii_downcase | contains($s | ascii_downcase))
-        )] | length
-    ')
+    print(f"📊 Errores similares en historial: {similar}\n")
     
-    echo "📊 Errores similares en historial: $similar"
-    echo ""
+    if similar > 3:
+        print("⚠️  RIESGO ALTO: Hay múltiples errores similares previos")
+    elif similar > 0:
+        print("⚡ RIESGO MEDIO: Hay algunos errores similares")
+    else:
+        print("✅ RIESGO BAJO: No hay errores similares conocidos")
     
-    if [ "$similar" -gt 3 ]; then
-        echo "⚠️  RIESGO ALTO: Hay múltiples errores similares previos"
-        echo ""
-        echo "Posibles causas basadas en historial:"
-        jq -r --arg s "$scenario" '
-            [.[] | select(
-                (.content_preview | ascii_downcase | contains($s | ascii_downcase)) or
-                (.source | ascii_downcase | contains($s | ascii_downcase))
-            )] | .[0:3][] |
-            "  • \(.source): \(.analysis | keys[] | select(. != "timestamp") | .)"
-        ' "$CAUSAL_GRAPH" 2>/dev/null
-    elif [ "$similar" -gt 0 ]; then
-        echo "⚡ RIESGO MEDIO: Hay algunos errores similares"
-        echo "  Revisar antes de proceder"
-    else
-        echo "✅ RIESGO BAJO: No hay errores similares conocidos"
-        echo "  Proceder con precaución normal"
-    fi
-    
-    # Registrar predicción
-    local prediction=$(jq -n \
-        --arg scenario "$scenario" \
-        --argjson similar "$similar" \
-        --arg risk "$(if [ "$similar" -gt 3 ]; then echo "high"; elif [ "$similar" -gt 0 ]; then echo "medium"; else echo "low"; fi)" \
-        '{
-            scenario: $scenario,
-            similar_errors: $similar,
-            risk_level: $risk,
-            timestamp: now | todate,
-            actual_outcome: null
-        }')
-    
-    echo "$prediction" >> "$PREDICTIONS"
-}
+    return 0
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 4. SIMULATE — Simular escenario mental
-# ══════════════════════════════════════════════════════════════════════════════
-simulate() {
-    local scenario="${1:-}"
+def simulate(scenario):
+    if not scenario:
+        print("Uso: nexo-deep simulate <escenario>")
+        return 1
     
-    [ -z "$scenario" ] && echo "Uso: nexo-deep simulate <escenario>" && exit 1
-    
-    echo "🧪 Simulación mental: $scenario"
-    echo ""
-    echo "Pensando paso a paso..."
-    echo ""
-    
-    # Paso 1: Identificar componentes
-    echo "📋 Componentes involucrados:"
-    echo "  • [Identificar archivos/programas/usuarios]"
-    echo "  • [Identificar dependencias]"
-    echo "  • [Identificar puntos de fallo]"
-    echo ""
-    
-    # Paso 2: Secuencia de eventos
-    echo "🔄 Secuencia probable:"
-    echo "  1. [Acción inicial]"
-    echo "  2. [Respuesta del sistema]"
-    echo "  3. [Posible resultado]"
-    echo ""
-    
-    # Paso 3: Puntos de fallo
-    echo "⚠️  Puntos de fallo potenciales:"
-    echo "  • [Permiso insuficiente]"
-    echo "  • [Archivo no encontrado]"
-    echo "  • [Conexión fallida]"
-    echo "  • [Timeout]"
-    echo ""
-    
-    # Paso 4: Plan alternativo
-    echo "🔄 Plan B:"
-    echo "  • [Alternativa si falla]"
-    echo "  • [Rollback]"
-    echo ""
-    
-    echo "💡 Simulación completada. La realidad puede diferir."
-}
+    print(f"{Colors.CYAN}🧪 Simulación mental: {scenario}{Colors.NC}\n")
+    print("Pensando paso a paso...\n")
+    print("📋 Componentes involucrados:")
+    print("  • [Identificar archivos/programas/usuarios]")
+    print("  • [Identificar dependencias]\n")
+    print("🔄 Secuencia probable:")
+    print("  1. [Acción inicial]")
+    print("  2. [Respuesta del sistema]\n")
+    print("⚠️  Puntos de fallo potenciales:")
+    print("  • [Permiso insuficiente]")
+    print("  • [Archivo no encontrado]\n")
+    print("💡 Simulación completada.")
+    return 0
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 5. EXPLAIN — Explicar lo que aprendí
-# ══════════════════════════════════════════════════════════════════════════════
-explain() {
-    echo "📖 Lo que he aprendido:"
-    echo ""
+def explain():
+    print(f"{Colors.CYAN}📖 Lo que he aprendido:{Colors.NC}\n")
     
-    # Del grafo causal
-    if [ -f "$CAUSAL_GRAPH" ]; then
-        local total=$(jq 'length' "$CAUSAL_GRAPH")
-        echo "📊 De $total análisis causales:"
-        echo ""
+    graph = load_json(CAUSAL_GRAPH, [])
+    if graph:
+        print(f"📊 De {len(graph)} análisis causales:\n")
+        print("🔧 Principios que descubrí:\n")
         
-        # Principios aprendidos
-        echo "🔧 Principios que descubrí:"
-        echo ""
-        
-        local syntax=$(jq '[.[] | select(.analysis.syntax > 0)] | length' "$CAUSAL_GRAPH")
-        local semantic=$(jq '[.[] | select(.analysis.semantic > 0)] | length' "$CAUSAL_GRAPH")
-        local runtime=$(jq '[.[] | select(.analysis.runtime > 0)] | length' "$CAUSAL_GRAPH")
-        local logic=$(jq '[.[] | select(.analysis.logic > 0)] | length' "$CAUSAL_GRAPH")
-        
-        [ $syntax -gt 0 ] && echo "  📝 Errores de sintaxis: Revisar siempre la estructura del código primero"
-        [ $semantic -gt 0 ] && echo "  🔍 Errores semánticos: Verificar que todo exista antes de usarlo"
-        [ $runtime -gt 0 ] && echo "  ⚡ Errores de runtime: Prepararse para el entorno (permisos, red)"
-        [ $logic -gt 0 ] && echo "  🧠 Errores lógicos: Pensar en casos extremos y condiciones de salida"
-    fi
+        for g in graph:
+            analysis = g.get("analysis", {})
+            if analysis.get("syntax", 0) > 0:
+                print("  📝 Errores de sintaxis: Revisar siempre la estructura")
+            if analysis.get("semantic", 0) > 0:
+                print("  🔍 Errores semánticos: Verificar que todo exista")
+            if analysis.get("runtime", 0) > 0:
+                print("  ⚡ Errores de runtime: Prepararse para el entorno")
+            if analysis.get("logic", 0) > 0:
+                print("  🧠 Errores lógicos: Pensar en casos extremos")
+            break
     
-    # De predicciones
-    if [ -f "$PREDICTIONS" ]; then
-        local pred_count=$(wc -l < "$PREDICTIONS")
-        local accurate=$(grep -c '"actual_outcome":"correct"' "$PREDICTIONS" 2>/dev/null || echo "0")
-        
-        if [ $pred_count -gt 0 ]; then
-            echo ""
-            echo "🔮 De mis predicciones ($pred_count total):"
-            echo "  Precisión: $(( accurate * 100 / pred_count ))%"
-        fi
-    fi
-    
-    echo ""
-    echo "🎓 Nivel de aprendizaje: En progreso"
-    echo "   Cada error es una oportunidad de aprender."
-    echo "   Cada éxito confirma que algo funciona."
-    echo "   La comprensión viene con la práctica."
-}
+    print(f"\n🎓 Nivel de aprendizaje: En progreso")
+    return 0
 
-# ══════════════════════════════════════════════════════════════════════════════
-# MAIN
-# ══════════════════════════════════════════════════════════════════════════════
-case "${1:-help}" in
-    analyze)
-        shift
-        analyze "$@"
-        ;;
-    pattern)
-        shift
-        pattern "$@"
-        ;;
-    predict)
-        shift
-        predict "$@"
-        ;;
-    simulate)
-        shift
-        simulate "$@"
-        ;;
-    explain)
-        explain
-        ;;
-    help|*)
-        echo "Uso: nexo-deep <comando>"
-        echo ""
-        echo "Comandos:"
-        echo "  analyze <file>       → Análisis causal profundo"
-        echo "  pattern [type]       → Buscar patrones causales"
-        echo "  predict <scenario>   → Predecir qué podría fallar"
-        echo "  simulate <scenario>  → Simular escenario mental"
-        echo "  explain              → Explicar lo que aprendí"
-        ;;
-esac
+def show_help():
+    print("""🔬 Nexo Deep Learning Engine
+
+Uso:
+  nexo-deep analyze <file>     Análisis causal profundo
+  nexo-deep pattern            Buscar patrones causales
+  nexo-deep predict <scenario> Predecir qué podría fallar
+  nexo-deep simulate <scenario> Simular escenario mental
+  nexo-deep explain            Explicar lo que aprendí""")
+
+def main():
+    args = sys.argv[1:]
+    cmd = args[0] if args else "help"
+    
+    if cmd in ["--help", "-h", "help"]:
+        show_help()
+        return 0
+    elif cmd == "analyze":
+        return analyze(args[1] if len(args) > 1 else "",
+                      args[2] if len(args) > 2 else "")
+    elif cmd == "pattern":
+        return pattern()
+    elif cmd == "predict":
+        return predict(args[1] if len(args) > 1 else "")
+    elif cmd == "simulate":
+        return simulate(args[1] if len(args) > 1 else "")
+    elif cmd == "explain":
+        return explain()
+    else:
+        show_help()
+        return 1
+
+if __name__ == "__main__":
+    sys.exit(main())
