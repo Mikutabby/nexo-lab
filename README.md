@@ -3,7 +3,7 @@
 [![English](https://img.shields.io/badge/lang-English-blue)](README.en.md)
 
 > Asistente autónomo para el hogar con **memoria persistente** — se acuerda de todo lo que hacés.  
-> **Solo Linux** — requiere bash, systemd y PulseAudio.
+> **Linux nativo** o **Windows vía WSL2** — requiere bash, systemd y PulseAudio.
 
 Nexo es un ecosistema de scripts y configuraciones que transforman una PC Linux en un asistente del hogar con **memoria persistente**, **reconocimiento facial**, **control por voz**, **monitoreo del sistema** y **auto-aprendizaje**.
 
@@ -18,11 +18,14 @@ Creado originalmente para un Intel Celeron 847 con 4 GB de RAM — está optimiz
 ### 📋 Distribuciones soportadas
 | Compatible | No compatible |
 |:---|---:|
-| Debian / Ubuntu / MX Linux | ❌ Windows |
-| Fedora / RHEL / CentOS | ❌ macOS |
-| Arch / Manjaro / EndeavourOS | ❌ BSD |
-| Linux Mint / Pop!_OS / Zorin | ❌ ChromeOS |
-| Cualquier distro con systemd + bash | Cualquier sistema sin systemd |
+| Debian / Ubuntu / MX Linux | ❌ macOS |
+| Fedora / RHEL / CentOS | ❌ BSD |
+| Arch / Manjaro / EndeavourOS | ❌ ChromeOS (sin Linux) |
+| Linux Mint / Pop!_OS / Zorin | Cualquier sistema sin systemd |
+| **Windows 10/11 vía WSL2 + Ubuntu** | |
+| Cualquier distro con systemd + bash | |
+
+> 🪟 **¿Tenés Windows?** Mirá **[INSTALL-WINDOWS.md](INSTALL-WINDOWS.md)** — se instala igual de fácil que Linux con un solo comando dentro de WSL2, y la GPU (RTX 3050, etc.) se usa automáticamente para Ollama.
 
 ---
 
