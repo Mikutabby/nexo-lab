@@ -12,12 +12,33 @@ Uso:
 """
 
 import cv2
+import json
 import os
 import sys
 import pickle
 import numpy as np
 import subprocess
 import time
+from pathlib import Path
+
+# ─── Config ─────────────────────────────────────────────────────
+
+CONFIG_FILE = Path.home() / ".nexo" / "config.json"
+
+def load_config():
+    """Carga la configuración desde ~/.nexo/config.json"""
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"user_name": "amigo"}
+
+def get_user_name():
+    """Obtiene el nombre del usuario desde la config"""
+    config = load_config()
+    return config.get("user_name", "amigo")
 
 # ─── Rutas ────────────────────────────────────────────────────────
 
@@ -224,10 +245,11 @@ def train():
 
     # Cargar perfiles existentes y agregar/actualizar
     profiles = load_profiles()
+    user_name = get_user_name()
     profiles[profile_key] = {
         "mean_embedding": mean_emb,
         "all_embeddings": embeddings,
-        "label": "miku",
+        "label": user_name,
         "created": time.time()
     }
     save_profiles(profiles)
@@ -316,16 +338,17 @@ def whoami():
             best_profile = name
             best_conf = conf
 
-    # Decidir: si el mejor perfil es miku_*, es miku
-    # IMPORTANTE: la PRIMERA línea debe ser el estado (miku/unknown/no_face)
-    # para que check-identity.sh pueda leerlo
+    # Decidir: si el mejor perfil es miku_*, es el usuario conocido
+    # IMPORTANTE: la PRIMERA línea debe ser el estado (usuario/unknown/no_face)
+    # para que check-identity.py pueda leerlo
+    user_name = get_user_name()
     if best_dist < COSINE_THRESHOLD and best_profile and best_profile.startswith("miku_"):
         print("miku")
-        print(f"👋 Hola miku! (perfil: '{best_profile}', confianza: {best_conf:.0f}%)")
+        print(f"👋 Hola {user_name}! (perfil: '{best_profile}', confianza: {best_conf:.0f}%)")
     else:
         print("unknown")
         if best_profile and best_profile.startswith("miku_"):
-            print(f"🤔 Casi miku! (distancia: {best_dist:.3f}, umbral: {COSINE_THRESHOLD:.2f})")
+            print(f"🤔 Casi {user_name}! (distancia: {best_dist:.3f}, umbral: {COSINE_THRESHOLD:.2f})")
         else:
             print(f"🤔 No te reconozco. (mejor distancia: {best_dist:.3f})")
 

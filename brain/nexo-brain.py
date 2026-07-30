@@ -18,15 +18,36 @@ from pathlib import Path
 MEMORY_DIR = Path.home() / ".nexo-memory"
 DB_PATH = MEMORY_DIR / "graph.db"
 MEMORY_JSON = MEMORY_DIR / "memory.json"
+CONFIG_FILE = Path.home() / ".nexo" / "config.json"
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "")
 
-SALUDOS = [
-    "Dime, miku",
-    "Aquí estoy, ¿qué necesitas?",
-    "¿En qué puedo ayudarte?",
-    "Te escucho, miku",
-    "Dime qué necesitas",
-]
+
+def load_config():
+    """Carga la configuración desde ~/.nexo/config.json"""
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"user_name": "amigo", "creator": "mikuyasha"}
+
+
+def get_user_name():
+    """Obtiene el nombre del usuario desde la config"""
+    config = load_config()
+    return config.get("user_name", "amigo")
+
+def get_saludos():
+    """Retorna la lista de saludos con el nombre del usuario"""
+    name = get_user_name()
+    return [
+        f"Dime, {name}",
+        "Aquí estoy, ¿qué necesitas?",
+        "¿En qué puedo ayudarte?",
+        f"Te escucho, {name}",
+        "Dime qué necesitas",
+    ]
 
 RESPUESTAS_NO_ENTIENDO = [
     "No entendí bien, ¿podrías repetirlo?",
@@ -34,14 +55,17 @@ RESPUESTAS_NO_ENTIENDO = [
     "Eso no lo tengo programado. Decime otra cosa.",
 ]
 
-BRAIN_REPLIES = [
-    "Entendido.",
-    "Listo.",
-    "Hecho.",
-    "Procesado.",
-    "Como digas, miku.",
-    "Ahí va.",
-]
+def get_brain_replies():
+    """Retorna las respuestas del brain con el nombre del usuario"""
+    name = get_user_name()
+    return [
+        "Entendido.",
+        "Listo.",
+        "Hecho.",
+        "Procesado.",
+        f"Como digas, {name}.",
+        "Ahí va.",
+    ]
 
 
 def load_memory():
@@ -118,10 +142,6 @@ def weather_response():
     return "No tengo datos del clima guardados."
 
 
-def get_user_name(memory):
-    return memory.get("user", {}).get("name", "miku")
-
-
 def process_command(text, memory, context, system_info):
     lower = text.lower().strip()
 
@@ -130,7 +150,7 @@ def process_command(text, memory, context, system_info):
                                                                    "sistema", "abre", "abri", "abrir",
                                                                    "busca", "diario", "limpiar", "memoria",
                                                                    "quien", "quién", "como", "cómo", "eres"]):
-        return random.choice(SALUDOS)
+        return random.choice(get_saludos())
 
     if re.search(r'\b(hora|qué hora|que hora|tiempo)\b', lower):
         return get_time_response()
@@ -145,13 +165,14 @@ def process_command(text, memory, context, system_info):
                 f"Uptime: {si.get('uptime', '?')}.")
 
     if re.search(r'\b(quien eres|quién eres|que eres|qué eres|como te llamas|cómo te llamas|presentate)\b', lower):
-        name = memory.get("nexo", {}).get("name", "Nexo")
-        creator = memory.get("nexo", {}).get("creator", "mikuyasha")
-        return f"Soy {name}, tu asistente del hogar. Fui creado por {creator} para ayudarte con tu PC."
+        config = load_config()
+        name = config.get("creator", "mikuyasha")
+        return f"Soy Nexo, tu asistente del hogar. Fui creado por {name} para ayudarte con tu PC."
 
     if re.search(r'\b(gracias|thanks|thank)\b', lower):
+        name = get_user_name()
         return random.choice(
-            ["De nada, miku.", "Para eso estoy.", "Cuando quieras.", "Un placer."])
+            [f"De nada, {name}.", "Para eso estoy.", "Cuando quieras.", "Un placer."])
 
     if re.search(r'\b(diario|resumen|hoy que hicimos|qué hicimos)\b', lower):
         log_dir = MEMORY_DIR / "log"

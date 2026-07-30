@@ -24,6 +24,18 @@ VERSION = "2.0"
 HOME = Path.home()
 IDENTITY_FILE = Path("/tmp/opencode-identity.json")
 SCRIPT_DIR = HOME / ".local" / "bin"
+CONFIG_FILE = HOME / ".nexo" / "config.json"
+
+
+def load_config():
+    """Carga la configuración desde ~/.nexo/config.json"""
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"user_name": "miku"}
 
 # ── Colores ────────────────────────────────────────────────────────────────
 class Colors:
@@ -94,6 +106,8 @@ def check_identity() -> str:
     # Obtener primera línea
     first_line = result.stdout.strip().split('\n')[0] if result.stdout.strip() else ""
     
+    # El face-recognize.py retorna "miku" si el perfil coincide
+    # Esto es interno del sistema de reconocimiento facial
     if first_line == "miku":
         return "miku"
     elif first_line == "unknown":
