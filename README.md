@@ -190,22 +190,21 @@ Cada componente se instala con un solo comando:
 
 ## 🔄 Actualizar Nexo
 
-Para actualizar sin reinstalar todo:
+### Comando rápido (copia y pega)
 
 ```bash
-nexo-update
+bash <(curl -fsSL https://raw.githubusercontent.com/Mikutabby/nexo-lab/master/update.sh)
 ```
 
-Esto **solo aplica los fixes y mejoras** sin sobreescribir tus configuraciones personales.
+Eso es todo. Solo pegalo en tu terminal y se actualiza solo.
 
-### Opciones
+### Si ya tenés nexo-update instalado
 
-| Comando | Qué hace |
-|---------|----------|
-| `nexo-update` | Actualiza con los últimos cambios |
-| `nexo-update --check` | Muestra qué cambiaría (sin aplicar) |
-| `nexo-update --force` | Fuerza la actualización |
-| `nexo-update --version` | Muestra la versión actual |
+```bash
+nexo-update           # Aplica últimos fixes
+nexo-update --check   # Muestra qué cambiaría (sin aplicar)
+nexo-update --version # Versión actual
+```
 
 ### Qué se actualiza
 
@@ -215,7 +214,7 @@ Esto **solo aplica los fixes y mejoras** sin sobreescribir tus configuraciones p
 - ❌ **NO** reinstala dependencias del sistema
 - ❌ **NO** sobreescribe `~/.nexo-memory/` (tu memoria persistente)
 
-> 💡 **Para usuarios de Termux:** Si Nexo te dice cosas raras, pedile a miku que te pase los scripts actualizados, o cloná el repo y ejecutá `./install.sh`
+> 💡 **Para usuarios de Termux:** Si Nexo te dice cosas raras, pegá el comando de arriba y se arregla.
 
 ### Instalación modular por componentes
 
