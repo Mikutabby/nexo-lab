@@ -188,6 +188,35 @@ Cada componente se instala con un solo comando:
 
 ---
 
+## 🔄 Actualizar Nexo
+
+Para actualizar sin reinstalar todo:
+
+```bash
+nexo-update
+```
+
+Esto **solo aplica los fixes y mejoras** sin sobreescribir tus configuraciones personales.
+
+### Opciones
+
+| Comando | Qué hace |
+|---------|----------|
+| `nexo-update` | Actualiza con los últimos cambios |
+| `nexo-update --check` | Muestra qué cambiaría (sin aplicar) |
+| `nexo-update --force` | Fuerza la actualización |
+| `nexo-update --version` | Muestra la versión actual |
+
+### Qué se actualiza
+
+- ✅ Scripts en `~/.local/bin/` (graph, memory, tools, brain, voice, etc.)
+- ✅ Migraciones automáticas si las hay
+- ❌ **NO** toca configuraciones del usuario
+- ❌ **NO** reinstala dependencias del sistema
+- ❌ **NO** sobreescribe `~/.nexo-memory/` (tu memoria persistente)
+
+> 💡 **Para usuarios de Termux:** Si Nexo te dice cosas raras, pedile a miku que te pase los scripts actualizados, o cloná el repo y ejecutá `./install.sh`
+
 ### Instalación modular por componentes
 
 El instalador ahora soporta **instalación por componentes individuales** con la flag `-c`:
