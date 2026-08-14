@@ -214,8 +214,22 @@ def process_command(text, memory, context, system_info):
 
     if re.search(r'\b(limpiar|limpia|basura|temp)\b', lower):
         try:
-            subprocess.run(["rm", "-rf", "/tmp/*"], shell=True, timeout=10)
-            return "Temporal limpiado."
+            import glob as globmod
+            import shutil
+            cleaned = 0
+            for item in globmod.glob("/tmp/*"):
+                # No borrar directorios importantes ni archivos en uso
+                if os.path.basename(item).startswith((".", "ssh-", "pulse-", "X11-")):
+                    continue
+                try:
+                    if os.path.isdir(item):
+                        shutil.rmtree(item, ignore_errors=True)
+                    else:
+                        os.remove(item)
+                    cleaned += 1
+                except Exception:
+                    pass
+            return f"Temporal limpiado: {cleaned} archivos eliminados."
         except Exception:
             return "No pude limpiar el temporal."
 

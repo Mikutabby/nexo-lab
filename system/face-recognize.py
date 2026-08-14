@@ -165,38 +165,78 @@ def cosine_distance(a, b):
 
 # ─── Carga/guarda de datos ──────────────────────────────────────
 
+EMBEDDINGS_JSON = os.path.expanduser("~/.face_embeddings.json")
+
 def load_profiles():
     """
-    Carga los perfiles desde el archivo.
-    Soporta formato nuevo (multi-perfil) y viejo (single) para backward compat.
+    Carga los perfiles desde JSON (seguro) o pickle (legacy para migración).
     Retorna dict de perfiles.
     """
-    if not os.path.exists(EMBEDDINGS_FILE):
-        return {}
+    # Intentar JSON primero (formato seguro)
+    if os.path.exists(EMBEDDINGS_JSON):
+        try:
+            with open(EMBEDDINGS_JSON, "r") as f:
+                data = json.load(f)
+            # Convertir listas a numpy arrays
+            for name, profile in data.get("profiles", {}).items():
+                if "mean_embedding" in profile:
+                    profile["mean_embedding"] = np.array(profile["mean_embedding"])
+                if "all_embeddings" in profile:
+                    profile["all_embeddings"] = [np.array(e) for e in profile["all_embeddings"]]
+            return data.get("profiles", {})
+        except Exception as e:
+            print(f"⚠️ Error cargando JSON: {e}", file=sys.stderr)
 
-    with open(EMBEDDINGS_FILE, "rb") as f:
-        data = pickle.load(f)
+    # Fallback: migrar de pickle legacy (VULNERABLE - solo para migración)
+    if os.path.exists(EMBEDDINGS_FILE):
+        try:
+            import pickle
+            print("⚠️ Migrando de pickle a JSON (formato seguro)...", file=sys.stderr)
+            with open(EMBEDDINGS_FILE, "rb") as f:
+                data = pickle.load(f)
+            # Formato nuevo
+            if "profiles" in data:
+                profiles = data["profiles"]
+            else:
+                # Formato viejo
+                profile = {
+                    "mean_embedding": data["mean_embedding"],
+                    "all_embeddings": data.get("all_embeddings", []),
+                    "label": data.get("label", "miku"),
+                    "created": time.time()
+                }
+                profiles = {"default": profile}
+            # Guardar como JSON y eliminar pickle
+            save_profiles(profiles)
+            try:
+                os.remove(EMBEDDINGS_FILE)
+                print("✅ Migrado y pickle eliminado", file=sys.stderr)
+            except OSError:
+                pass
+            return profiles
+        except Exception as e:
+            print(f"❌ Error migrando pickle: {e}", file=sys.stderr)
 
-    # Formato nuevo: {"profiles": {name: {...}, ...}}
-    if "profiles" in data:
-        return data["profiles"]
-
-    # Formato viejo: {"mean_embedding": ..., "label": "miku", ...}
-    # Migrar automáticamente al nuevo formato
-    profile = {
-        "mean_embedding": data["mean_embedding"],
-        "all_embeddings": data.get("all_embeddings", []),
-        "label": data.get("label", "miku"),
-        "created": time.time()
-    }
-    return {"default": profile}
+    return {}
 
 
 def save_profiles(profiles):
-    """Guarda los perfiles en el archivo."""
-    data = {"profiles": profiles}
-    with open(EMBEDDINGS_FILE, "wb") as f:
-        pickle.dump(data, f)
+    """Guarda los perfiles en archivo JSON (seguro)."""
+    # Convertir numpy arrays a listas para JSON
+    data_to_save = {"profiles": {}}
+    for name, profile in profiles.items():
+        saved_profile = dict(profile)
+        if "mean_embedding" in saved_profile and hasattr(saved_profile["mean_embedding"], "tolist"):
+            saved_profile["mean_embedding"] = saved_profile["mean_embedding"].tolist()
+        if "all_embeddings" in saved_profile:
+            saved_profile["all_embeddings"] = [
+                e.tolist() if hasattr(e, "tolist") else e 
+                for e in saved_profile["all_embeddings"]
+            ]
+        data_to_save["profiles"][name] = saved_profile
+    
+    with open(EMBEDDINGS_JSON, "w") as f:
+        json.dump(data_to_save, f, indent=2)
 
 
 # ─── Entrenamiento ───────────────────────────────────────────────
@@ -254,7 +294,7 @@ def train():
     }
     save_profiles(profiles)
 
-    print(f"\n✅ Perfil '{profile_key}' guardado en {EMBEDDINGS_FILE}")
+    print(f"\n✅ Perfil '{profile_key}' guardado en {EMBEDDINGS_JSON}")
 
     # Auto-verificación
     dists = [cosine_distance(mean_emb, e) for e in embeddings]
