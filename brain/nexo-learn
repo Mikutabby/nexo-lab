@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""
+🧠 Nexo Learn — Sistema de aprendizaje automático.
+Analiza logs y aprende patrones para mejorar el comportamiento.
+"""
+
+import json
+import re
+import subprocess
+from pathlib import Path
+from datetime import datetime, timezone
+from collections import Counter
+
+LOGS_DIR = Path.home() / ".nexo-memory" / "logs"
+MEMORY_FILE = Path.home() / ".nexo-memory" / "learnings.json"
+
+def load_learnings():
+    if MEMORY_FILE.exists():
+        with open(MEMORY_FILE) as f:
+            return json.load(f)
+    return {"patterns": [], "errors": [], "improvements": [], "last_analysis": None}
+
+def save_learnings(data):
+    MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(MEMORY_FILE, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+def analyze_logs():
+    """Analyze recent logs for patterns and errors."""
+    learnings = load_learnings()
+    
+    # Analyze temp logs
+    temp_log = LOGS_DIR / "temp.log"
+    if temp_log.exists():
+        with open(temp_log) as f:
+            lines = f.readlines()
+            
+        # Count temperature readings
+        temps = []
+        for line in lines:
+            match = re.search(r'Temperatura: (\d+)°C', line)
+            if match:
+                temps.append(int(match.group(1)))
+        
+        if temps:
+            avg_temp = sum(temps) / len(temps)
+            max_temp = max(temps)
+            min_temp = min(temps)
+            
+            learnings["patterns"].append({
+                "date": datetime.now(timezone.utc).isoformat(),
+                "type": "temperature",
+                "avg": round(avg_temp, 1),
+                "max": max_temp,
+                "min": min_temp,
+                "readings": len(temps)
+            })
+            
+            # Learn if temperature is consistently high
+            if avg_temp > 75:
+                learnings["improvements"].append({
+                    "date": datetime.now(timezone.utc).isoformat(),
+                    "area": "temperature",
+                    "suggestion": "Temperatura promedio alta. Considerar limpiar ventilador o mejorar flujo de aire.",
+                    "severity": "medium"
+                })
+    
+    # Analyze autoheal logs
+    autoheal_log = LOGS_DIR / "autoheal.log"
+    if autoheal_log.exists():
+        with open(autoheal_log) as f:
+            lines = f.readlines()
+        
+        # Count issues found
+        issues = Counter()
+        for line in lines:
+            if "⚠️" in line:
+                if "Disco" in line:
+                    issues["disk"] += 1
+                elif "Memoria" in line:
+                    issues["memory"] += 1
+                elif "Servicio" in line:
+                    issues["service"] += 1
+                elif "permisos" in line:
+                    issues["permissions"] += 1
+        
+        if issues:
+            learnings["patterns"].append({
+                "date": datetime.now(timezone.utc).isoformat(),
+                "type": "system_issues",
+                "issues": dict(issues)
+            })
+            
+            # Learn from frequent issues
+            for issue, count in issues.items():
+                if count > 3:
+                    learnings["improvements"].append({
+                        "date": datetime.now(timezone.utc).isoformat(),
+                        "area": issue,
+                        "suggestion": f"Problema '{issue}' detectado {count} veces. Investigar causa raíz.",
+                        "severity": "high"
+                    })
+    
+    # Analyze backup logs
+    backup_log = LOGS_DIR / "backup.log"
+    if backup_log.exists():
+        with open(backup_log) as f:
+            lines = f.readlines()
+        
+        # Check for errors
+        errors = [line for line in lines if "error" in line.lower() or "falló" in line.lower()]
+        if errors:
+            learnings["errors"].append({
+                "date": datetime.now(timezone.utc).isoformat(),
+                "type": "backup_error",
+                "count": len(errors),
+                "sample": errors[0][:200] if errors else ""
+            })
+    
+    learnings["last_analysis"] = datetime.now(timezone.utc).isoformat()
+    save_learnings(learnings)
+    
+    return learnings
+
+def show_learnings():
+    """Show what the system has learned."""
+    learnings = load_learnings()
+    
+    print("🧠 Aprendizajes del sistema")
+    print(f"   Último análisis: {learnings.get('last_analysis', 'Nunca')}")
+    
+    if learnings["patterns"]:
+        print("\n📊 Patrones detectados:")
+        for p in learnings["patterns"][-5:]:  # Show last 5
+            if p["type"] == "temperature":
+                print(f"   {p['date'][:10]}: Temp avg={p['avg']}°C, max={p['max']}°C")
+            elif p["type"] == "system_issues":
+                issues = ", ".join(f"{k}:{v}" for k, v in p["issues"].items())
+                print(f"   {p['date'][:10]}: Problemas: {issues}")
+    
+    if learnings["improvements"]:
+        print("\n💡 Mejoras sugeridas:")
+        for i in learnings["improvements"][-5:]:  # Show last 5
+            print(f"   {i['date'][:10]}: [{i['severity']}] {i['suggestion']}")
+    
+    if learnings["errors"]:
+        print("\n🚨 Errores detectados:")
+        for e in learnings["errors"][-3:]:  # Show last 3
+            print(f"   {e['date'][:10]}: {e['type']} ({e['count']} veces)")
+
+def main():
+    import sys
+    
+    if len(sys.argv) < 2:
+        print("🧠 Nexo Learn — Sistema de aprendizaje automático")
+        print("\nComandos:")
+        print("  analyze  → Analizar logs y aprender patrones")
+        print("  show     → Ver aprendizajes")
+        return
+    
+    cmd = sys.argv[1]
+    
+    if cmd == "analyze":
+        print("🔍 Analizando logs...")
+        learnings = analyze_logs()
+        print(f"✅ Análisis completado: {len(learnings['patterns'])} patrones, {len(learnings['improvements'])} mejoras")
+    
+    elif cmd == "show":
+        show_learnings()
+    
+    else:
+        print(f"❌ Comando desconocido: {cmd}")
+
+if __name__ == "__main__":
+    main()

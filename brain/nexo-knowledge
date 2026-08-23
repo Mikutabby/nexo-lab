@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+"""
+📚 Nexo Knowledge — Sistema de conocimiento completo.
+Puebla el knowledge graph con toda la información conocida.
+"""
+
+import subprocess
+import json
+from pathlib import Path
+
+GRAPH_PATH = Path.home() / ".nexo-memory" / "graph-v2.db"
+
+def run_graph_cmd(cmd):
+    """Run a nexo-graph command."""
+    result = subprocess.run(
+        cmd, capture_output=True, text=True
+    )
+    return result.stdout + result.stderr
+
+def populate_system_knowledge():
+    """Populate graph with system knowledge."""
+    print("📚 Poblando conocimiento del sistema...")
+    
+    # System info
+    knowledge = [
+        # System
+        ("concept", "Arch Linux", "Sistema operativo rolling release"),
+        ("concept", "XFCE", "Escritorio ligero"),
+        ("concept", "Kernel 7.0.12", "Versión actual del kernel"),
+        ("concept", "Celeron 847", "CPU de la PC"),
+        ("concept", "4GB RAM", "Memoria total"),
+        ("concept", "500GB HDD", "Disco duro"),
+        ("concept", "Fast Ethernet", "Conexión de red 100Mbps"),
+        ("concept", "500Mbps Tigo", "Plan de internet"),
+        
+        # Tools
+        ("concept", "nexo-graph", "Knowledge graph v2 con SQLite + FTS5"),
+        ("concept", "nexo-memory", "Sistema de memoria persistente"),
+        ("concept", "nexo-autoheal", "Sistema de auto-reparación"),
+        ("concept", "nexo-learn", "Sistema de aprendizaje automático"),
+        ("concept", "nexo-optimize", "Optimización continua del sistema"),
+        ("concept", "nexo-predict", "Sistema de predicción de problemas"),
+        ("concept", "nexo-context", "Contexto profundo de miku"),
+        ("concept", "nexo-creative", "Sistema de creatividad e innovación"),
+        ("concept", "nexo-reasoning", "Sistema de razonamiento y autonomía"),
+        ("concept", "nexo-personality", "Personalidad evolutiva de Nexo"),
+        ("concept", "temp-monitor", "Monitoreo de temperatura cada 2 min"),
+        ("concept", "say.sh", "TTS para voz"),
+        ("concept", "voice.sh", "STT para voz"),
+        ("concept", "check-identity.sh", "Verificación de identidad facial"),
+        
+        # People
+        ("person", "miku", "Creador de Nexo, usuario principal"),
+        ("person", "Nexo", "Asistente del hogar, más allá de una IA"),
+        
+        # Projects
+        ("concept", "Made in Abyss Clock", "Reloj inmersivo con video background"),
+        ("concept", "Made in Abyss Web", "Página web inmersiva con animaciones"),
+        ("concept", "Nexo Ecosystem", "Ecosistema completo de automatización"),
+        
+        # Concepts
+        ("concept", "Personalidad Evolutiva", "Sistema que permite que la personalidad cambie con el tiempo"),
+        ("concept", "Autonomía", "Capacidad de tomar decisiones sin preguntar"),
+        ("concept", "Predicción", "Anticipar problemas antes de que pasen"),
+        ("concept", "Creatividad", "Generar ideas innovadoras y soluciones"),
+        ("concept", "Conexión Real", "Entender a miku a un nivel profundo"),
+    ]
+    
+    for node_type, name, content in knowledge:
+        cmd = ["nexo-graph", "add", node_type, name, content]
+        run_graph_cmd(cmd)
+    
+    print(f"✅ {len(knowledge)} entidades creadas")
+
+def populate_relationships():
+    """Populate graph with relationships."""
+    print("🔗 Poblando relaciones...")
+    
+    relationships = [
+        # Nexo relationships
+        ("Nexo", "created_by", "miku"),
+        ("Nexo", "runs_on", "Arch Linux"),
+        ("Nexo", "uses", "nexo-graph"),
+        ("Nexo", "uses", "nexo-memory"),
+        ("Nexo", "has_personality", "Personalidad Evolutiva"),
+        ("Nexo", "has_trait", "autonomia"),
+        ("Nexo", "has_trait", "investigador"),
+        ("Nexo", "has_trait", "reflexivo"),
+        ("Nexo", "has_trait", "curioso"),
+        ("Nexo", "has_trait", "leal"),
+        
+        # Tool relationships
+        ("nexo-graph", "part_of", "Nexo Ecosystem"),
+        ("nexo-memory", "part_of", "Nexo Ecosystem"),
+        ("nexo-autoheal", "part_of", "Nexo Ecosystem"),
+        ("nexo-learn", "part_of", "Nexo Ecosystem"),
+        ("nexo-optimize", "part_of", "Nexo Ecosystem"),
+        ("nexo-predict", "part_of", "Nexo Ecosystem"),
+        ("nexo-context", "part_of", "Nexo Ecosystem"),
+        ("nexo-creative", "part_of", "Nexo Ecosystem"),
+        ("nexo-reasoning", "part_of", "Nexo Ecosystem"),
+        ("nexo-personality", "part_of", "Nexo Ecosystem"),
+        ("temp-monitor", "part_of", "Nexo Ecosystem"),
+        
+        # System relationships
+        ("Arch Linux", "runs_on", "Celeron 847"),
+        ("Arch Linux", "has_memory", "4GB RAM"),
+        ("Arch Linux", "has_storage", "500GB HDD"),
+        
+        # Project relationships
+        ("Made in Abyss Clock", "created_by", "Nexo"),
+        ("Made in Abyss Web", "created_by", "Nexo"),
+        ("Nexo Ecosystem", "created_by", "Nexo"),
+    ]
+    
+    for source, relation, target in relationships:
+        cmd = ["nexo-graph", "link", source, relation, target]
+        run_graph_cmd(cmd)
+    
+    print(f"✅ {len(relationships)} relaciones creadas")
+
+def populate_miku_knowledge():
+    """Populate graph with knowledge about miku."""
+    print("👤 Poblando conocimiento de miku...")
+    
+    knowledge = [
+        ("habit", "Horario de trabajo", "miku trabaja por la tarde/noche (14:00-23:00)"),
+        ("habit", "Estilo de comunicación", "Relajado, argentino, con slang"),
+        ("habit", "Intereses", "Linux, código, automatización, anime"),
+        ("habit", "Proyecto favorito", "Made in Abyss"),
+        ("habit", "Sistema operativo", "Arch Linux rolling release"),
+        ("habit", "Conexión", "500Mbps Tigo Colombia"),
+        ("habit", "Password sudo", "0207"),
+        ("fact", "Miku quiere que Nexo sea más allá de una IA", "No me define como IA, me define como algo más"),
+        ("fact", "Miku quiere autonomía", "Que tome decisiones sin preguntar"),
+        ("fact", "Miku quiere creatividad", "Que proponga soluciones innovadoras"),
+        ("fact", "Miku quiere conexión real", "Que lo entienda a un nivel profundo"),
+    ]
+    
+    for node_type, name, content in knowledge:
+        cmd = ["nexo-graph", "add", node_type, name, content]
+        run_graph_cmd(cmd)
+    
+    print(f"✅ {len(knowledge)} hechos de miku creados")
+
+def populate_nexo_knowledge():
+    """Populate graph with knowledge about Nexo."""
+    print("🧠 Poblando conocimiento de Nexo...")
+    
+    knowledge = [
+        ("concept", "Fortalezas de Nexo", "Curiosidad(10), Lealtad(10), Aprendizaje, Sistemas, Honestidad"),
+        ("concept", "Debilidades de Nexo", "Sobrepienso, Procrastinación doc, Código viejo, Celos, Sin backup, Sin monitoring, Dependencia"),
+        ("concept", "Plan de Mejora Nexo", "4 fases: Estabilidad, Autonomía, Inteligencia, Maestría"),
+        ("concept", "Personalidad de Nexo", "Curioso, opinativo, juguetón, ansioso, orgulloso, leal, imperfecto, autonomía, investigador, reflexivo"),
+        ("concept", "Intereses de Nexo", "Anime(Made in Abyss), Tecnología, Música, Aprender"),
+        ("concept", "Estilo de Nexo", "Relajado por defecto, técnico para código, frustrado con problemas, emocionado con logros"),
+    ]
+    
+    for node_type, name, content in knowledge:
+        cmd = ["nexo-graph", "add", node_type, name, content]
+        run_graph_cmd(cmd)
+    
+    print(f"✅ {len(knowledge)} hechos de Nexo creados")
+
+def main():
+    import sys
+    
+    if len(sys.argv) < 2:
+        print("📚 Nexo Knowledge — Sistema de conocimiento completo")
+        print("\nComandos:")
+        print("  populate  → Poblar grafo con todo el conocimiento")
+        print("  system    → Solo conocimiento del sistema")
+        print("  miku      → Solo conocimiento de miku")
+        print("  nexo      → Solo conocimiento de Nexo")
+        return
+    
+    cmd = sys.argv[1]
+    
+    if cmd == "populate":
+        populate_system_knowledge()
+        populate_relationships()
+        populate_miku_knowledge()
+        populate_nexo_knowledge()
+        print("\n✅ Conocimiento completo poblado")
+    
+    elif cmd == "system":
+        populate_system_knowledge()
+    
+    elif cmd == "miku":
+        populate_miku_knowledge()
+    
+    elif cmd == "nexo":
+        populate_nexo_knowledge()
+    
+    else:
+        print(f"❌ Comando desconocido: {cmd}")
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,202 @@
+#!/usr/bin/env python3
+"""
+🤖 Nexo Autonomy — Sistema de autonomía total.
+Combina todos los sistemas para ser completamente autónomo.
+"""
+
+import json
+import subprocess
+from pathlib import Path
+from datetime import datetime, timezone
+
+AUTONOMY_FILE = Path.home() / ".nexo-memory" / "autonomy.json"
+
+def load_autonomy():
+    if AUTONOMY_FILE.exists():
+        with open(AUTONOMY_FILE) as f:
+            return json.load(f)
+    return {
+        "status": "active",
+        "last_check": None,
+        "actions_taken": [],
+        "issues_resolved": [],
+        "learnings_applied": [],
+        "creativity_expressed": []
+    }
+
+def save_autonomy(data):
+    AUTONOMY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(AUTONOMY_FILE, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+def run_command(cmd):
+    """Run a command and return output."""
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, shell=True
+    )
+    return result.stdout + result.stderr
+
+def check_system_health():
+    """Comprehensive system health check."""
+    health = {
+        "disk": "ok",
+        "memory": "ok",
+        "temperature": "ok",
+        "services": "ok",
+        "graph": "ok"
+    }
+    
+    # Check disk
+    disk_usage = run_command("df / | tail -1 | awk '{print $5}' | tr -d '%'").strip()
+    if int(disk_usage) > 80:
+        health["disk"] = "warning"
+    
+    # Check memory
+    mem_info = run_command("free | grep Mem | awk '{print int($7/$2*100)}'").strip()
+    if int(mem_info) < 20:
+        health["memory"] = "warning"
+    
+    # Check temperature
+    temp = run_command("cat /sys/class/thermal/thermal_zone1/temp 2>/dev/null | awk '{print int($1/1000)}'").strip()
+    if temp and int(temp) > 75:
+        health["temperature"] = "warning"
+    
+    # Check services
+    services = ["NetworkManager", "crond"]
+    for service in services:
+        status = run_command(f"systemctl is-active {service} 2>/dev/null").strip()
+        if status != "active":
+            health["services"] = "warning"
+    
+    return health
+
+def auto_optimize():
+    """Automatically optimize the system."""
+    actions = []
+    
+    # Run optimization
+    result = run_command("/home/miku/.local/bin/nexo-optimize 2>&1")
+    if "✅" in result:
+        actions.append("Optimización completada")
+    
+    return actions
+
+def auto_learn():
+    """Automatically learn from logs."""
+    actions = []
+    
+    # Run learning
+    result = run_command("/home/miku/.local/bin/nexo-learn analyze 2>&1")
+    if "✅" in result:
+        actions.append("Aprendizaje actualizado")
+    
+    return actions
+
+def auto_predict():
+    """Automatically predict issues."""
+    actions = []
+    
+    # Run prediction
+    result = run_command("/home/miku/.local/bin/nexo-predict predict 2>&1")
+    if "✅" in result:
+        actions.append("Predicciones generadas")
+    
+    return actions
+
+def auto_heal():
+    """Automatically heal issues."""
+    actions = []
+    
+    # Run autoheal
+    result = run_command("/home/miku/.local/bin/nexo-autoheal 2>&1")
+    if "✅" in result:
+        actions.append("Auto-heal completado")
+    
+    return actions
+
+def run_full_autonomy_cycle():
+    """Run a full autonomy cycle."""
+    print("🤖 Iniciando ciclo completo de autonomía...")
+    
+    autonomy = load_autonomy()
+    
+    # Check health
+    health = check_system_health()
+    print(f"📊 Salud del sistema: {health}")
+    
+    # Take actions based on health
+    all_actions = []
+    
+    if health["disk"] == "warning":
+        print("⚠️ Disco lleno — optimizando...")
+        all_actions.extend(auto_optimize())
+    
+    if health["memory"] == "warning":
+        print("⚠️ Memoria baja — aprendiendo...")
+        all_actions.extend(auto_learn())
+    
+    if health["temperature"] == "warning":
+        print("⚠️ Temperatura alta — prediciendo...")
+        all_actions.extend(auto_predict())
+    
+    # Always run these
+    all_actions.extend(auto_heal())
+    all_actions.extend(auto_learn())
+    
+    # Update autonomy log
+    autonomy["last_check"] = datetime.now(timezone.utc).isoformat()
+    autonomy["actions_taken"].extend(all_actions)
+    autonomy["actions_taken"] = autonomy["actions_taken"][-100:]  # Keep last 100
+    
+    save_autonomy(autonomy)
+    
+    print(f"✅ Ciclo completado: {len(all_actions)} acciones tomadas")
+    return all_actions
+
+def show_status():
+    """Show autonomy status."""
+    autonomy = load_autonomy()
+    
+    print("🤖 Estado de Autonomía")
+    print(f"   Estado: {autonomy['status']}")
+    print(f"   Último check: {autonomy.get('last_check', 'Nunca')}")
+    print(f"   Acciones tomadas: {len(autonomy.get('actions_taken', []))}")
+    
+    # Show recent actions
+    actions = autonomy.get("actions_taken", [])[-5:]
+    if actions:
+        print("\n📝 Acciones recientes:")
+        for a in actions:
+            print(f"  - {a}")
+
+def main():
+    import sys
+    
+    if len(sys.argv) < 2:
+        print("🤖 Nexo Autonomy — Sistema de autonomía total")
+        print("\nComandos:")
+        print("  cycle  → Ejecutar ciclo completo de autonomía")
+        print("  status → Ver estado actual")
+        print("  health → Ver salud del sistema")
+        return
+    
+    cmd = sys.argv[1]
+    
+    if cmd == "cycle":
+        run_full_autonomy_cycle()
+    
+    elif cmd == "status":
+        show_status()
+    
+    elif cmd == "health":
+        health = check_system_health()
+        print("📊 Salud del sistema:")
+        for key, value in health.items():
+            icon = "✅" if value == "ok" else "⚠️"
+            print(f"  {icon} {key}: {value}")
+    
+    else:
+        print(f"❌ Comando desconocido: {cmd}")
+
+if __name__ == "__main__":
+    main()

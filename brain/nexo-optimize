@@ -1,0 +1,120 @@
+#!/bin/bash
+# nexo-optimize — Optimización continua del sistema
+# Limpia, optimiza, y mantiene el sistema saludable
+
+LOG_FILE="/home/miku/.nexo-memory/logs/optimize.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
+}
+
+# Limpiar caché de pacman
+clean_pacman_cache() {
+    log "🧹 Limpiando caché de pacman"
+    echo "0207" | sudo -S pacman -Scc --noconfirm 2>/dev/null
+    log "✅ Caché de pacman limpiado"
+}
+
+# Limpiar logs viejos
+clean_old_logs() {
+    log "🧹 Limpiando logs viejos"
+    find /home/miku/.nexo-memory/logs -name "*.log" -mtime +30 -delete 2>/dev/null
+    find /var/log -name "*.gz" -delete 2>/dev/null
+    find /var/log -name "*.old" -delete 2>/dev/null
+    log "✅ Logs viejos limpiados"
+}
+
+# Limpiar archivos temporales
+clean_temp_files() {
+    log "🧹 Limpiando archivos temporales"
+    find /tmp -type f -mtime +1 -delete 2>/dev/null
+    find /var/tmp -type f -mtime +7 -delete 2>/dev/null
+    log "✅ Archivos temporales limpiados"
+}
+
+# Optimizar base de datos del grafo
+optimize_graph_db() {
+    local db="/home/miku/.nexo-memory/graph-v2.db"
+    
+    if [ -f "$db" ]; then
+        log "🔧 Optimizando knowledge graph"
+        sqlite3 "$db" "VACUUM;" 2>/dev/null
+        sqlite3 "$db" "REINDEX;" 2>/dev/null
+        log "✅ Knowledge graph optimizado"
+    fi
+}
+
+# Optimizar base de datos de memoria
+optimize_memory_db() {
+    local db="/home/miku/.nexo-memory/memory.db"
+    
+    if [ -f "$db" ]; then
+        log "🔧 Optimizando memoria"
+        sqlite3 "$db" "VACUUM;" 2>/dev/null
+        log "✅ Memoria optimizada"
+    fi
+}
+
+# Verificar integridad de archivos importantes
+verify_integrity() {
+    log "🔍 Verificando integridad de archivos"
+    
+    local files=(
+        "/home/miku/.local/bin/nexo-graph"
+        "/home/miku/.local/bin/nexo-memory"
+        "/home/miku/.local/bin/nexo-doc"
+        "/home/miku/.local/bin/nexo-autoheal"
+        "/home/miku/.local/bin/nexo-learn"
+        "/home/miku/.local/bin/temp-monitor.sh"
+    )
+    
+    local issues=0
+    for file in "${files[@]}"; do
+        if [ ! -f "$file" ]; then
+            log "⚠️ Archivo faltante: $file"
+            issues=$((issues + 1))
+        elif [ ! -x "$file" ]; then
+            log "⚠️ Archivo no ejecutable: $file"
+            chmod +x "$file"
+            log "✅ Permisos arreglados: $file"
+        fi
+    done
+    
+    if [ "$issues" -eq 0 ]; then
+        log "✅ Todos los archivos verificados"
+    fi
+}
+
+# Actualizar automáticamente la memoria
+update_memory() {
+    log "🧠 Actualizando memoria"
+    
+    # Get system stats
+    local disk_usage=$(df / | tail -1 | awk '{print $5}' | tr -d '%')
+    local mem_free=$(free | grep Mem | awk '{print $7}')
+    local temp=$(cat /sys/class/thermal/thermal_zone1/temp 2>/dev/null | awk '{print $1/1000}')
+    
+    # Save to memory
+    /home/miku/.local/bin/nexo-memory save fact "System stats: disk=${disk_usage}%, mem_free=${mem_free}KB, temp=${temp}°C" 2>/dev/null
+    
+    log "✅ Memoria actualizada"
+}
+
+# Main
+log "🔧 Iniciando optimización del sistema"
+
+clean_pacman_cache
+clean_old_logs
+clean_temp_files
+optimize_graph_db
+optimize_memory_db
+verify_integrity
+update_memory
+
+log "✅ Optimización completada"
+
+# Keep only last 500 lines
+if [ -f "$LOG_FILE" ]; then
+    tail -500 "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
+fi

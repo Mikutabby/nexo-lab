@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""
+🤔 Nexo Reasoning — Sistema de razonamiento y autonomía.
+Registra el por qué de cada acción y permite autoevaluación.
+"""
+
+import json
+import sys
+from pathlib import Path
+from datetime import datetime, timezone
+
+REASONING_PATH = Path.home() / ".nexo-memory" / "reasoning.json"
+
+def load_reasoning():
+    if REASONING_PATH.exists():
+        with open(REASONING_PATH) as f:
+            return json.load(f)
+    return {"actions": [], "autonomous": [], "improvements": []}
+
+def save_reasoning(data):
+    REASONING_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(REASONING_PATH, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+def log_action(action, reason, context="", result="", improvement=""):
+    """Log an action with reasoning."""
+    data = load_reasoning()
+    entry = {
+        "date": datetime.now(timezone.utc).isoformat(),
+        "action": action,
+        "reason": reason,
+        "context": context,
+        "result": result,
+        "improvement": improvement
+    }
+    data["actions"].append(entry)
+    save_reasoning(data)
+    print(f"📝 Acción registrada: {action}")
+
+def log_autonomous(action, reason, result=""):
+    """Log an autonomous action (done without asking)."""
+    data = load_reasoning()
+    entry = {
+        "date": datetime.now(timezone.utc).isoformat(),
+        "action": action,
+        "reason": reason,
+        "result": result
+    }
+    data["autonomous"].append(entry)
+    save_reasoning(data)
+    print(f"🤖 Acción autónoma registrada: {action}")
+
+def log_improvement(area, current, proposed, reason=""):
+    """Log a suggested improvement."""
+    data = load_reasoning()
+    entry = {
+        "date": datetime.now(timezone.utc).isoformat(),
+        "area": area,
+        "current": current,
+        "proposed": proposed,
+        "reason": reason
+    }
+    data["improvements"].append(entry)
+    save_reasoning(data)
+    print(f"💡 Mejora sugerida: {area}")
+
+def show_actions(limit=10):
+    """Show recent actions with reasoning."""
+    data = load_reasoning()
+    actions = data.get("actions", [])[-limit:]
+    if not actions:
+        print("(sin acciones registradas)")
+        return
+    print("📝 Últimas acciones:")
+    for a in actions:
+        date = a["date"][:10]
+        print(f"\n  {date}: {a['action']}")
+        print(f"    Por qué: {a['reason']}")
+        if a.get("context"):
+            print(f"    Contexto: {a['context']}")
+        if a.get("result"):
+            print(f"    Resultado: {a['result']}")
+        if a.get("improvement"):
+            print(f"    Mejora: {a['improvement']}")
+
+def show_autonomous(limit=10):
+    """Show autonomous actions."""
+    data = load_reasoning()
+    actions = data.get("autonomous", [])[-limit:]
+    if not actions:
+        print("(sin acciones autónomas)")
+        return
+    print("🤖 Acciones autónomas:")
+    for a in actions:
+        date = a["date"][:10]
+        print(f"\n  {date}: {a['action']}")
+        print(f"    Por qué: {a['reason']}")
+        if a.get("result"):
+            print(f"    Resultado: {a['result']}")
+
+def show_improvements(limit=10):
+    """Show suggested improvements."""
+    data = load_reasoning()
+    improvements = data.get("improvements", [])[-limit:]
+    if not improvements:
+        print("(sin mejoras sugeridas)")
+        return
+    print("💡 Mejoras sugeridas:")
+    for i in improvements:
+        date = i["date"][:10]
+        print(f"\n  {date}: {i['area']}")
+        print(f"    Actual: {i['current']}")
+        print(f"    Propuesto: {i['proposed']}")
+        if i.get("reason"):
+            print(f"    Razón: {i['reason']}")
+
+def main():
+    if len(sys.argv) < 2:
+        print("🤔 Nexo Reasoning — Sistema de razonamiento y autonomía")
+        print("\nComandos:")
+        print("  action <acción> <razón> [contexto] [resultado] [mejora]")
+        print("  autonomous <acción> <razón> [resultado]")
+        print("  improvement <área> <actual> <propuesto> [razón]")
+        print("  actions [limite]  → Ver acciones recientes")
+        print("  autonomous [limite]  → Ver acciones autónomas")
+        print("  improvements [limite]  → Ver mejoras sugeridas")
+        return
+
+    cmd = sys.argv[1]
+    args = sys.argv[2:]
+
+    if cmd == "action":
+        if len(args) < 2:
+            print("❌ Uso: nexo-reasoning action <acción> <razón> [contexto] [resultado] [mejora]")
+            return
+        action = args[0]
+        reason = args[1]
+        context = args[2] if len(args) > 2 else ""
+        result = args[3] if len(args) > 3 else ""
+        improvement = args[4] if len(args) > 4 else ""
+        log_action(action, reason, context, result, improvement)
+    
+    elif cmd == "autonomous":
+        if len(args) < 2:
+            print("❌ Uso: nexo-reasoning autonomous <acción> <razón> [resultado]")
+            return
+        action = args[0]
+        reason = args[1]
+        result = args[2] if len(args) > 2 else ""
+        log_autonomous(action, reason, result)
+    
+    elif cmd == "improvement":
+        if len(args) < 3:
+            print("❌ Uso: nexo-reasoning improvement <área> <actual> <propuesto> [razón]")
+            return
+        area = args[0]
+        current = args[1]
+        proposed = args[2]
+        reason = args[3] if len(args) > 3 else ""
+        log_improvement(area, current, proposed, reason)
+    
+    elif cmd == "actions":
+        limit = int(args[0]) if args else 10
+        show_actions(limit)
+    
+    elif cmd == "autonomous-list":
+        limit = int(args[0]) if args else 10
+        show_autonomous(limit)
+    
+    elif cmd == "improvements":
+        limit = int(args[0]) if args else 10
+        show_improvements(limit)
+    
+    else:
+        print(f"❌ Comando desconocido: {cmd}")
+
+if __name__ == "__main__":
+    main()

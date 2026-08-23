@@ -103,3 +103,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatic backups before import
   - Commands: get, set, check, delete, list, status, export, import
 - **Wrapper script** for backward compatibility
+
+## [2.1.0] - 2026-08-23
+
+### Added
+- `nexo-autonomy` — Sistema de autonomía total
+- `nexo-connection` — Conexión real con miku
+- `nexo-context` — Contexto profundo
+- `nexo-creative` — Creatividad e innovación
+- `nexo-doc` — Documentación automática
+- `nexo-knowledge` — Conocimiento completo
+- `nexo-learn` — Aprendizaje automático
+- `nexo-optimize` — Optimización continua
+- `nexo-predict` — Predicción de problemas
+- `nexo-reasoning` — Razonamiento y autonomía
+- `temp-monitor` — Monitoreo de temperatura
+
+### Improved
+- Knowledge graph v2 con 77 entidades
+- Sistema de personalidad evolutiva
+- Crontab completo con automatizaciones
+- Sistema de backup automático
+
+### Phase 4 Complete
+- Conocimiento completo en grafo
+- Autonomía total del sistema
+- Conexión real con miku

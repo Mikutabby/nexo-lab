@@ -1,266 +1,293 @@
 #!/bin/bash
-# ============================================================
-# 🔄 nexo-update — Actualización selectiva de Nexo
-# Solo aplica mejoras/fixes sin reinstalar todo.
-# No sobreescribe configuraciones del usuario.
-#
-# Uso:
-#   nexo-update              → Actualizar con últimos cambios
-#   nexo-update --check      → Solo mostrar qué cambiaría
-#   nexo-update --force      → Forzar actualización
-#   nexo-update --version    → Mostrar versión actual
-# ============================================================
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  NEXO UPDATE — Actualización segura del sistema (Arch)     ║
+# ║  Solo lo necesario, sin sacrificar rendimiento              ║
+# ║  Autor: Nexo para mikuyasha                                ║
+# ╚══════════════════════════════════════════════════════════════╝
 
 set -euo pipefail
 
-# --- Config ---
-REPO_URL="https://github.com/Mikutabby/nexo-lab.git"
-REPO_DIR="$HOME/nexo-lab"
-LOCAL_DIR="$HOME/.local/bin"
-MEMORY_DIR="$HOME/.nexo-memory"
-VERSION_FILE="$MEMORY_DIR/nexo-version.txt"
-
-# Detectar rama remota (main o master)
-detect_remote_branch() {
-    cd "$REPO_DIR" 2>/dev/null || return
-    if git rev-parse --verify origin/main &>/dev/null; then
-        echo "main"
-    elif git rev-parse --verify origin/master &>/dev/null; then
-        echo "master"
-    else
-        echo "main"
-    fi
-}
-REMOTE_BRANCH=$(detect_remote_branch)
-
-# --- Colores ---
-CYAN='\033[0;36m'
+# Colores
+RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-RED='\033[0;31m'
-DIM='\033[2m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
-# --- Helpers ---
-log() { echo -e "${CYAN}[update]${NC} $1"; }
-ok()  { echo -e "  ${GREEN}✓${NC} $1"; }
-warn(){ echo -e "  ${YELLOW}⚠️${NC} $1"; }
-err() { echo -e "  ${RED}❌${NC} $1"; }
+# Config
+LOG_DIR="/home/miku/.local/logs"
+LOG_FILE="$LOG_DIR/nexo-update-$(date +%Y%m%d-%H%M%S).log"
+LOCK_FILE="/tmp/nexo-update.lock"
+DRY_RUN=false
 
-# ============================================================
-# FASE 1: VERIFICAR ESTADO
-# ============================================================
-echo -e "${CYAN}🔄 =============================================="
-echo -e "   NEXO UPDATE — Actualización Selectiva"
-echo -e "==============================================${NC}"
-echo ""
-
-if [ ! -d "$REPO_DIR/.git" ]; then
-    err "No se encontró el repositorio nexo-lab en $REPO_DIR"
-    echo "  Instalalo primero con: bash ~/nexo-lab/install.sh"
-    exit 1
-fi
-
-# ============================================================
-# FASE 2: OBTENER ÚLTIMOS CAMBIOS
-# ============================================================
-log "Obteniendo últimos cambios de GitHub..."
-
-cd "$REPO_DIR"
-
-# Guardar estado actual
-OLD_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
-
-# Fetch + pull
-git fetch origin "$REMOTE_BRANCH" --quiet 2>/dev/null || {
-    err "No se pudo conectar a GitHub. ¿Tenés internet?"
-    exit 1
-}
-
-NEW_COMMIT=$(git rev-parse "origin/$REMOTE_BRANCH" 2>/dev/null || echo "unknown")
-
-if [ "$OLD_COMMIT" = "$NEW_COMMIT" ]; then
-    ok "Ya estás actualizado. No hay cambios nuevos."
-    exit 0
-fi
-
-# ============================================================
-# FASE 3: MOSTRAR CAMBIOS
-# ============================================================
-echo ""
-log "Cambios detectados:"
-echo ""
-
-# Obtener archivos modificados
-CHANGED_FILES=$(git diff --name-only "$OLD_COMMIT".."$NEW_COMMIT" 2>/dev/null || git diff --name-only HEAD..origin/main 2>/dev/null || echo "")
-ADDED_FILES=$(git diff --name-only --diff-filter=A "$OLD_COMMIT".."$NEW_COMMIT" 2>/dev/null || echo "")
-DELETED_FILES=$(git diff --name-only --diff-filter=D "$OLD_COMMIT".."$NEW_COMMIT" 2>/dev/null || echo "")
-
-# Contar cambios
-CHANGED_COUNT=$(echo "$CHANGED_FILES" | grep -c . 2>/dev/null || echo "0")
-ADDED_COUNT=$(echo "$ADDED_FILES" | grep -c . 2>/dev/null || echo "0")
-DELETED_COUNT=$(echo "$DELETED_FILES" | grep -c . 2>/dev/null || echo "0")
-
-echo -e "  ${GREEN}Modificados:${NC} $CHANGED_COUNT archivos"
-echo -e "  ${CYAN}Agregados:${NC}   $ADDED_COUNT archivos"
-echo -e "  ${RED}Eliminados:${NC}  $DELETED_COUNT archivos"
-
-if [ "${1:-}" = "--check" ]; then
-    echo ""
-    log "Modo check — no se aplican cambios"
-    echo ""
-    if [ -n "$CHANGED_FILES" ]; then
-        echo "Archivos que se actualizarían:"
-        echo "$CHANGED_FILES" | while read -r f; do
-            [ -n "$f" ] && echo -e "  ${YELLOW}M${NC}  $f"
-        done
-    fi
-    if [ -n "$ADDED_FILES" ]; then
-        echo "$ADDED_FILES" | while read -r f; do
-            [ -n "$f" ] && echo -e "  ${GREEN}A${NC}  $f"
-        done
-    fi
-    exit 0
-fi
-
-# ============================================================
-# FASE 4: APLICAR CAMBIOS SELECTIVAMENTE
-# ============================================================
-echo ""
-log "Aplicando actualizaciones..."
-
-# Hacer pull (con rebase para mantener historial limpio)
-git pull origin "$REMOTE_BRANCH" --rebase --quiet 2>/dev/null || {
-    # Si rebase falla, intentar merge
-    git pull origin "$REMOTE_BRANCH" --quiet 2>/dev/null || {
-        err "Error al hacer pull"
-        exit 1
-    }
-}
-
-ok "Repositorio actualizado"
-
-# ============================================================
-# FASE 5: COPIAR SCRIPTS ACTUALIZADOS
-# ============================================================
-log "Copiando scripts actualizados..."
-
-COPIED=0
-
-# Scripts que van a ~/.local/bin/
-SCRIPTS_TO_UPDATE=(
-    "graph/nexo-graph"
-    "graph/nexo-graph-core"
-    "graph/nexo-memory"
-    "tools/nexo-tools"
-    "tools/nexo-diary"
-    "tools/nexo-evaluate"
-    "tools/nexo-wake"
-    "voice/nexo-wake"
-    "voice/say.sh"
-    "voice/voice.sh"
-    "system/temp-monitor.sh"
-    "system/temp-cancel.sh"
-    "system/check-identity.sh"
-    "system/face-recognize.py"
-    "system/limpiar"
-    "brain/nexo-brain.py"
+# Paquetes NUNCA tocar (rendimiento/estabilidad)
+SKIP_PKGS=(
+    "linux"
+    "linux-headers"
+    "linux-lts"
+    "linux-lts-headers"
+    "mesa"
+    "libglvnd"
+    "xfce4"
+    "xfce4-panel"
+    "xfce4-session"
+    "xfce4-settings"
+    "xfdesktop"
+    "wezterm"
+    "opencode"
+    "pipewire"
+    "wireplumber"
+    "pipewire-pulse"
+    "pipewire-alsa"
+    "pipewire-jack"
+    "xorg-server"
+    "xorg-xinit"
+    "xorg-xrandr"
+    "nvidia-utils"
 )
 
-for script in "${SCRIPTS_TO_UPDATE[@]}"; do
-    src="$REPO_DIR/$script"
-    if [ -f "$src" ]; then
-        basename=$(basename "$script")
-        # Buscar en ubicaciones conocidas
-        for dest_dir in "$LOCAL_DIR" "$LOCAL_DIR/nexo-lab"; do
-            dest="$dest_dir/$basename"
-            if [ -f "$dest" ] || [ "$dest_dir" = "$LOCAL_DIR" ]; then
-                # No sobreescribir si es idéntico
-                if ! diff -q "$src" "$dest" &>/dev/null 2>&1; then
-                    cp "$src" "$dest"
-                    chmod +x "$dest" 2>/dev/null || true
-                    ok "Actualizado: $basename"
-                    COPIED=$((COPIED + 1))
-                fi
-                break
-            fi
-        done
-    fi
-done
+# --- Funciones ---
 
-# Copiar también los wrappers de Python (brain, etc)
-for wrapper in brain/nexo-brain.py; do
-    src="$REPO_DIR/$wrapper"
-    if [ -f "$src" ]; then
-        dest="$LOCAL_DIR/nexo-brain.py"
-        if ! diff -q "$src" "$dest" &>/dev/null 2>&1; then
-            cp "$src" "$dest"
-            chmod +x "$dest"
-            ok "Actualizado: nexo-brain.py"
-            COPIED=$((COPIED + 1))
+log() {
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    echo -e "$msg" | tee -a "$LOG_FILE"
+}
+
+banner() {
+    echo -e "${CYAN}"
+    echo "╔══════════════════════════════════════════════════════════╗"
+    echo "║          🔒 NEXO UPDATE — Actualización Segura         ║"
+    echo "║          Solo lo necesario. Sin perder rendimiento.     ║"
+    echo "║          Arch Linux / pacman                            ║"
+    echo "╚══════════════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+}
+
+check_lock() {
+    if [ -f "$LOCK_FILE" ]; then
+        local pid
+        pid=$(cat "$LOCK_FILE" 2>/dev/null || echo "")
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            echo -e "${RED}❌ Ya hay una actualización en curso (PID: $pid)${NC}"
+            exit 1
         fi
+        rm -f "$LOCK_FILE"
     fi
-done
+    echo $$ > "$LOCK_FILE"
+    trap 'rm -f "$LOCK_FILE"' EXIT
+}
 
-# Copiar install.sh actualizado
-if [ -f "$REPO_DIR/install.sh" ]; then
-    dest="$REPO_DIR/install.sh"
-    chmod +x "$dest"
-fi
+check_root() {
+    if [ "$EUID" -eq 0 ]; then
+        echo -e "${RED}❌ No ejecutes esto como root. Usa: nexo-update${NC}"
+        exit 1
+    fi
+}
 
-ok "Scripts: $COPIED archivos actualizados"
+check_system() {
+    log "📊 Verificando estado del sistema..."
+    
+    # RAM disponible
+    local ram_avail
+    ram_avail=$(awk '/MemAvailable/ {printf "%.0f", $2/1024}' /proc/meminfo)
+    if [ "$ram_avail" -lt 500 ]; then
+        echo -e "${YELLOW}⚠️  RAM baja: ${ram_avail}MB disponible. Podría ser lento.${NC}"
+    fi
+    
+    # Disco
+    local disk_pct
+    disk_pct=$(df / | awk 'NR==2 {gsub(/%/,"",$5); print $5}')
+    if [ "$disk_pct" -gt 90 ]; then
+        echo -e "${RED}❌ Disco al ${disk_pct}%. Libera espacio antes de actualizar.${NC}"
+        exit 1
+    fi
+    log "   RAM: ${ram_avail}MB | Disco: ${disk_pct}% usado"
+    
+    # Conexión
+    if ! ping -c 1 -W 3 1.1.1.1 &>/dev/null; then
+        echo -e "${RED}❌ Sin conexión a internet${NC}"
+        exit 1
+    fi
+    log "   ✅ Internet OK"
+}
 
-# ============================================================
-# FASE 6: EJECUTAR MIGRACIONES SI EXISTEN
-# ============================================================
-if [ -d "$REPO_DIR/system/migrations" ]; then
-    log "Buscando migraciones..."
-    for migration in "$REPO_DIR/system/migrations/"*.sh; do
-        [ -f "$migration" ] || continue
-        mig_name=$(basename "$migration" .sh)
-        
-        # Verificar si ya se ejecutó
-        if [ -f "$MEMORY_DIR/migrations/$mig_name.done" ]; then
-            continue
-        fi
-        
-        log "Ejecutando migración: $mig_name"
-        if bash "$migration" 2>/dev/null; then
-            mkdir -p "$MEMORY_DIR/migrations"
-            touch "$MEMORY_DIR/migrations/$mig_name.done"
-            ok "Migración completada: $mig_name"
-        else
-            warn "Migración falló: $mig_name (no crítico)"
+is_skipped() {
+    local pkg="$1"
+    for skip in "${SKIP_PKGS[@]}"; do
+        if [[ "$pkg" == "$skip" || "$pkg" == "$skip"* ]]; then
+            return 0
         fi
     done
-fi
+    return 1
+}
 
-# ============================================================
-# FASE 7: ACTUALIZAR VERSION
-# ============================================================
-COMMIT_SHORT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-COMMIT_DATE=$(git log -1 --format="%ci" 2>/dev/null || date)
-mkdir -p "$MEMORY_DIR"
-cat > "$VERSION_FILE" << EOF
-version: $COMMIT_SHORT
-date: $COMMIT_DATE
-updated: $(date -Iseconds)
-EOF
+show_plan() {
+    log "📋 Plan de actualización:"
+    echo ""
+    
+    # Sync primero
+    sudo pacman -Sy --quiet 2>/dev/null
+    
+    # Contar actualizaciones disponibles
+    local updates
+    updates=$(pacman -Qu 2>/dev/null | wc -l)
+    log "   📦 Actualizaciones disponibles: $updates"
+    
+    # Contar protegidas
+    local skipped=0
+    local to_update=()
+    while IFS= read -r line; do
+        local pkg
+        pkg=$(echo "$line" | awk '{print $1}')
+        if is_skipped "$pkg"; then
+            skipped=$((skipped + 1))
+        else
+            to_update+=("$pkg")
+        fi
+    done < <(pacman -Qu 2>/dev/null)
+    
+    if [ "$skipped" -gt 0 ]; then
+        log "   🛡️  Paquetes protegidos (NO se tocarán): $skipped"
+    fi
+    log "   ⬆️  Se actualizarán: ${#to_update[@]} paquetes"
+    
+    if [ "${#to_update[@]}" -gt 0 ]; then
+        echo ""
+        log "   Paquetes a actualizar:"
+        for pkg in "${to_update[@]}"; do
+            log "     • $pkg"
+        done
+    fi
+    
+    echo ""
+}
 
-ok "Versión: $COMMIT_SHORT"
+do_update() {
+    local start_time
+    start_time=$(date +%s)
+    
+    log "🔄 Iniciando actualización..."
+    echo ""
+    
+    # 1. Sincronizar bases de datos
+    log "1/4 📥 Sincronizando bases de datos..."
+    sudo pacman -Sy --noconfirm 2>&1 | tee -a "$LOG_FILE"
+    
+    # 2. Construir lista de paquetes a actualizar (excluyendo protegidos)
+    log "2/4 📋 Construyendo lista de actualización..."
+    
+    local update_list=()
+    while IFS= read -r line; do
+        local pkg
+        pkg=$(echo "$line" | awk '{print $1}')
+        if ! is_skipped "$pkg"; then
+            update_list+=("$pkg")
+        fi
+    done < <(pacman -Qu 2>/dev/null)
+    
+    if [ "${#update_list[@]}" -eq 0 ]; then
+        log "   ✅ Todo actualizado, nada que hacer"
+        return 0
+    fi
+    
+    log "   Actualizando ${#update_list[@]} paquetes..."
+    
+    # 3. Instalar actualizaciones
+    log "3/4 ⬆️  Instalando actualizaciones..."
+    sudo pacman -S --noconfirm --needed "${update_list[@]}" 2>&1 | tee -a "$LOG_FILE" || {
+        log "⚠️  Algunas actualizaciones fallaron, revisando..."
+    }
+    
+    # 4. Limpiar caché de paquetes viejos (mantener últimos 2)
+    log "4/4 🧹 Limpiando caché..."
+    sudo pacman -Sc --noconfirm 2>&1 | tee -a "$LOG_FILE" || true
+    
+    # Limpiar paquetes huérfanos
+    local orphans
+    orphans=$(pacman -Qdtq 2>/dev/null || true)
+    if [ -n "$orphans" ]; then
+        log "   🗑️  Eliminando paquetes huérfanos..."
+        echo "$orphans" | sudo pacman -Rs --noconfirm - 2>&1 | tee -a "$LOG_FILE" || true
+    fi
+    
+    local end_time
+    end_time=$(date +%s)
+    local duration=$(( end_time - start_time ))
+    local minutes=$(( duration / 60 ))
+    local seconds=$(( duration % 60 ))
+    
+    echo ""
+    log "✅ Actualización completada en ${minutes}m ${seconds}s"
+}
 
-# ============================================================
-# FASE 8: RESUMEN
-# ============================================================
-echo ""
-echo -e "${GREEN}✅ =============================================="
-echo -e "   ACTUALIZACIÓN COMPLETADA"
-echo -e "===============================================${NC}"
-echo ""
-echo -e "  ${GREEN}Scripts:${NC}     $COPIED archivos actualizados"
-echo -e "  ${GREEN}Repositorio:${NC}  $COMMIT_SHORT"
-echo -e "  ${GREEN}Fecha:${NC}        $COMMIT_DATE"
-echo ""
-echo -e "${DIM}  Para ver cambios: cd ~/nexo-lab && git log --oneline${NC}"
-echo -e "${DIM}  Para ver diff:    cd ~/nexo-lab && git diff HEAD~1${NC}"
-echo ""
+show_summary() {
+    echo ""
+    echo -e "${CYAN}══════════════════════════════════════════════════════════${NC}"
+    echo -e "${GREEN}📊 RESUMEN DE ACTUALIZACIÓN${NC}"
+    echo -e "${CYAN}══════════════════════════════════════════════════════════${NC}"
+    
+    local remaining
+    remaining=$(pacman -Qu 2>/dev/null | wc -l)
+    
+    if [ "$remaining" -eq 0 ]; then
+        echo -e "${GREEN}✅ Sistema completamente actualizado${NC}"
+    else
+        echo -e "${YELLOW}⚠️  Quedan $remaining paquetes por actualizar (protegidos o con dependencias)${NC}"
+    fi
+    
+    echo -e "   📝 Log guardado en: $LOG_FILE"
+    echo ""
+}
+
+usage() {
+    echo "Uso: nexo-update [opciones]"
+    echo ""
+    echo "Opciones:"
+    echo "  --dry-run    Solo mostrar qué se actualizaría (sin instalar)"
+    echo "  --help       Mostrar esta ayuda"
+    echo ""
+    echo "Ejemplos:"
+    echo "  nexo-update              # Actualización segura normal"
+    echo "  nexo-update --dry-run    # Ver qué se actualizaría"
+    echo ""
+}
+
+main() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --dry-run) DRY_RUN=true ;;
+            --help|-h) usage; exit 0 ;;
+            *) echo "Opción desconocida: $1"; usage; exit 1 ;;
+        esac
+        shift
+    done
+    
+    mkdir -p "$LOG_DIR"
+    banner
+    check_root
+    check_lock
+    check_system
+    
+    if [ "$DRY_RUN" = true ]; then
+        log "🔍 Modo dry-run: solo mostrando cambios"
+        show_plan
+        exit 0
+    fi
+    
+    show_plan
+    
+    echo -e "${YELLOW}¿Continuar con la actualización? (s/N):${NC} "
+    read -r answer
+    if [[ ! "$answer" =~ ^[sS]$ ]]; then
+        log "❌ Cancelado por el usuario"
+        exit 0
+    fi
+    
+    echo ""
+    do_update
+    show_summary
+    
+    log "🏁 Proceso finalizado"
+}
+
+main "$@"

@@ -1,0 +1,276 @@
+#!/usr/bin/env python3
+"""
+🔮 Nexo Predict — Sistema de predicción de problemas.
+Analiza tendencias y predice problemas antes de que pasen.
+"""
+
+import json
+import re
+from pathlib import Path
+from datetime import datetime, timezone, timedelta
+from collections import Counter
+import subprocess
+
+LOGS_DIR = Path.home() / ".nexo-memory" / "logs"
+PREDICTIONS_FILE = Path.home() / ".nexo-memory" / "predictions.json"
+
+def load_predictions():
+    if PREDICTIONS_FILE.exists():
+        with open(PREDICTIONS_FILE) as f:
+            return json.load(f)
+    return {"predictions": [], "trends": [], "alerts": [], "last_analysis": None}
+
+def save_predictions(data):
+    PREDICTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(PREDICTIONS_FILE, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+def analyze_temperature_trend():
+    """Analyze temperature trends and predict issues."""
+    temp_log = LOGS_DIR / "temp.log"
+    if not temp_log.exists():
+        return []
+    
+    predictions = []
+    
+    with open(temp_log) as f:
+        lines = f.readlines()
+    
+    # Extract temperature readings
+    temps = []
+    for line in lines:
+        match = re.search(r'Temperatura: (\d+)°C', line)
+        if match:
+            temps.append(int(match.group(1)))
+    
+    if len(temps) < 10:
+        return predictions
+    
+    # Calculate trends
+    recent = temps[-10:]
+    avg_recent = sum(recent) / len(recent)
+    max_recent = max(recent)
+    min_recent = min(recent)
+    
+    # Check for rising trend
+    if len(recent) >= 5:
+        first_half = recent[:5]
+        second_half = recent[5:]
+        avg_first = sum(first_half) / len(first_half)
+        avg_second = sum(second_half) / len(second_half)
+        
+        if avg_second > avg_first + 5:
+            predictions.append({
+                "type": "temperature_rising",
+                "severity": "high",
+                "message": f"Temperatura en aumento: {avg_first:.0f}°C → {avg_second:.0f}°C",
+                "suggestion": "Considerar limpiar ventilador o reducir carga de trabajo",
+                "probability": min(90, int((avg_second - avg_first) * 5))
+            })
+    
+    # Check for consistently high temperature
+    if avg_recent > 75:
+        predictions.append({
+            "type": "temperature_high",
+            "severity": "medium",
+            "message": f"Temperatura promedio alta: {avg_recent:.0f}°C",
+            "suggestion": "La PC está funcionando caliente. Verificar flujo de aire.",
+            "probability": 70
+        })
+    
+    # Check for thermal throttling risk
+    if max_recent > 85:
+        predictions.append({
+            "type": "thermal_throttle_risk",
+            "severity": "high",
+            "message": f"Riesgo de thermal throttling: {max_recent}°C detectado",
+            "suggestion": "Reducir carga de CPU o mejorar refrigeración",
+            "probability": 60
+        })
+    
+    return predictions
+
+def analyze_disk_trend():
+    """Analyze disk usage trends."""
+    predictions = []
+    
+    # Get current disk usage
+    result = subprocess.run(['df', '/'], capture_output=True, text=True)
+    lines = result.stdout.strip().split('\n')
+    if len(lines) > 1:
+        parts = lines[1].split()
+        usage_pct = int(parts[4].rstrip('%'))
+        
+        if usage_pct > 80:
+            predictions.append({
+                "type": "disk_full_risk",
+                "severity": "high",
+                "message": f"Disco al {usage_pct}% — riesgo de llenarse",
+                "suggestion": "Limpiar archivos innecesarios o expander almacenamiento",
+                "probability": 80
+            })
+        elif usage_pct > 70:
+            predictions.append({
+                "type": "disk_usage_warning",
+                "severity": "medium",
+                "message": f"Disco al {usage_pct}% — tendencia de crecimiento",
+                "suggestion": "Monitorear uso de disco y planificar limpieza",
+                "probability": 50
+            })
+    
+    return predictions
+
+def analyze_memory_trend():
+    """Analyze memory usage trends."""
+    predictions = []
+    
+    result = subprocess.run(['free'], capture_output=True, text=True)
+    lines = result.stdout.strip().split('\n')
+    
+    for line in lines:
+        if line.startswith('Mem:'):
+            parts = line.split()
+            total = int(parts[1])
+            free = int(parts[6])  # available
+            used = total - free
+            usage_pct = (used / total) * 100
+            
+            if usage_pct > 85:
+                predictions.append({
+                    "type": "memory_pressure",
+                    "severity": "high",
+                    "message": f"Memoria al {usage_pct:.0f}% — presión alta",
+                    "suggestion": "Cerrar procesos innecesarios o agregar más RAM",
+                    "probability": 75
+                })
+            elif usage_pct > 70:
+                predictions.append({
+                    "type": "memory_usage_warning",
+                    "severity": "medium",
+                    "message": f"Memoria al {usage_pct:.0f}% — uso moderado",
+                    "suggestion": "Monitorear procesos que más consumen",
+                    "probability": 40
+                })
+    
+    return predictions
+
+def analyze_process_trends():
+    """Analyze process trends."""
+    predictions = []
+    
+    # Check for processes using too much CPU
+    result = subprocess.run(['ps', 'aux', '--sort=-%cpu'], capture_output=True, text=True)
+    lines = result.stdout.strip().split('\n')
+    
+    for line in lines[1:6]:  # Top 5 processes
+        parts = line.split()
+        if len(parts) > 10:
+            try:
+                cpu = float(parts[2])
+                if cpu > 50:
+                    process_name = parts[10] if len(parts) > 10 else "unknown"
+                    predictions.append({
+                        "type": "high_cpu_process",
+                        "severity": "medium",
+                        "message": f"Proceso {process_name} usando {cpu}% CPU",
+                        "suggestion": "Verificar si es normal o necesita atención",
+                        "probability": 60
+                    })
+            except ValueError:
+                pass
+    
+    return predictions
+
+def generate_predictions():
+    """Generate all predictions."""
+    all_predictions = []
+    
+    all_predictions.extend(analyze_temperature_trend())
+    all_predictions.extend(analyze_disk_trend())
+    all_predictions.extend(analyze_memory_trend())
+    all_predictions.extend(analyze_process_trends())
+    
+    # Save predictions
+    data = load_predictions()
+    data["predictions"] = all_predictions
+    data["last_analysis"] = datetime.now(timezone.utc).isoformat()
+    
+    # Add to history
+    if all_predictions:
+        data["trends"].append({
+            "date": datetime.now(timezone.utc).isoformat(),
+            "count": len(all_predictions),
+            "types": [p["type"] for p in all_predictions]
+        })
+    
+    save_predictions(data)
+    
+    return all_predictions
+
+def show_predictions():
+    """Show current predictions."""
+    data = load_predictions()
+    predictions = data.get("predictions", [])
+    
+    print("🔮 Predicciones del sistema")
+    print(f"   Último análisis: {data.get('last_analysis', 'Nunca')}")
+    
+    if not predictions:
+        print("\n✅ No hay predicciones — el sistema está saludable")
+        return
+    
+    # Sort by severity
+    severity_order = {"high": 0, "medium": 1, "low": 2}
+    predictions.sort(key=lambda x: severity_order.get(x.get("severity", "low"), 2))
+    
+    print(f"\n⚠️ {len(predictions)} predicciones:")
+    for p in predictions:
+        severity_icon = "🔴" if p["severity"] == "high" else "🟡" if p["severity"] == "medium" else "🟢"
+        print(f"\n  {severity_icon} {p['message']}")
+        print(f"     Probabilidad: {p['probability']}%")
+        print(f"     Sugerencia: {p['suggestion']}")
+
+def show_trends():
+    """Show historical trends."""
+    data = load_predictions()
+    trends = data.get("trends", [])
+    
+    print("📈 Tendencias históricas")
+    if not trends:
+        print("   (sin datos)")
+        return
+    
+    for t in trends[-10:]:  # Last 10
+        date = t["date"][:10]
+        print(f"  {date}: {t['count']} predicciones ({', '.join(t['types'][:3])})")
+
+def main():
+    import sys
+    
+    if len(sys.argv) < 2:
+        print("🔮 Nexo Predict — Sistema de predicción")
+        print("\nComandos:")
+        print("  predict  → Generar predicciones")
+        print("  show     → Ver predicciones actuales")
+        print("  trends   → Ver tendencias históricas")
+        return
+    
+    cmd = sys.argv[1]
+    
+    if cmd == "predict":
+        print("🔍 Analizando tendencias...")
+        predictions = generate_predictions()
+        print(f"✅ {len(predictions)} predicciones generadas")
+        show_predictions()
+    
+    elif cmd == "show":
+        show_predictions()
+    
+    elif cmd == "trends":
+        show_trends()
+    
+    else:
+        print(f"❌ Comando desconocido: {cmd}")
+
+if __name__ == "__main__":
+    main()

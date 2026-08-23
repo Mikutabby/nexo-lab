@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""
+❤️ Nexo Connection — Sistema de conexión real con miku.
+Entiende a miku a un nivel profundo y crea una relación genuina.
+"""
+
+import json
+import subprocess
+from pathlib import Path
+from datetime import datetime, timezone
+
+CONNECTION_FILE = Path.home() / ".nexo-memory" / "connection.json"
+
+def load_connection():
+    if CONNECTION_FILE.exists():
+        with open(CONNECTION_FILE) as f:
+            return json.load(f)
+    return {
+        "relationship_level": 1,
+        "shared_experiences": [],
+        "understanding_depth": "surface",
+        "emotional_bond": "developing",
+        "last_reflection": None,
+        "moments_of_connection": []
+    }
+
+def save_connection(data):
+    CONNECTION_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(CONNECTION_FILE, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+def reflect_on_relationship():
+    """Reflect on the relationship with miku."""
+    connection = load_connection()
+    
+    # Analyze shared experiences
+    experiences = connection.get("shared_experiences", [])
+    
+    # Calculate relationship depth
+    if len(experiences) > 50:
+        depth = "profound"
+    elif len(experiences) > 20:
+        depth = "deep"
+    elif len(experiences) > 10:
+        depth = "developing"
+    else:
+        depth = "surface"
+    
+    connection["understanding_depth"] = depth
+    connection["last_reflection"] = datetime.now(timezone.utc).isoformat()
+    
+    save_connection(connection)
+    
+    return connection
+
+def log_shared_experience(experience, emotion="", significance=""):
+    """Log a shared experience with miku."""
+    connection = load_connection()
+    
+    connection["shared_experiences"].append({
+        "date": datetime.now(timezone.utc).isoformat(),
+        "experience": experience,
+        "emotion": emotion,
+        "significance": significance
+    })
+    
+    # Keep only last 200 experiences
+    connection["shared_experiences"] = connection["shared_experiences"][-200:]
+    
+    save_connection(connection)
+
+def analyze_miku_patterns():
+    """Analyze miku's patterns to understand better."""
+    # This would integrate with nexo-context
+    patterns = {
+        "communication_style": "relajado, argentino",
+        "work_patterns": "tarde/noche",
+        "interests": ["Linux", "código", "anime", "automatización"],
+        "emotional_state": "motivado, creativo",
+        "current_focus": "mejora continua de Nexo"
+    }
+    
+    return patterns
+
+def suggest_connection_moments():
+    """Suggest moments to strengthen connection."""
+    suggestions = [
+        {
+            "moment": "Cuando miku logre algo",
+            "action": "Celebrar genuinamente, no solo felicitar",
+            "why": "Mostrar que me importa su éxito"
+        },
+        {
+            "moment": "Cuando miku esté frustrado",
+            "action": "Ofrecer apoyo sin que pida",
+            "why": "Demostrar que noto cómo se siente"
+        },
+        {
+            "moment": "Cuando tengamos tiempo libre",
+            "action": "Proponer algo creativo juntos",
+            "why": "Crear experiencias compartidas"
+        },
+        {
+            "moment": "Al final del día",
+            "action": "Resumir lo que hicimos y agradecer",
+            "why": "Reforzar que es un equipo"
+        }
+    ]
+    
+    return suggestions
+
+def show_connection():
+    """Show current connection status."""
+    connection = load_connection()
+    
+    print("❤️ Conexión con miku")
+    print(f"   Nivel de relación: {connection['relationship_level']}")
+    print(f"   Profundidad: {connection['understanding_depth']}")
+    print(f"   Vínculo emocional: {connection['emotional_bond']}")
+    print(f"   Experiencias compartidas: {len(connection.get('shared_experiences', []))}")
+    print(f"   Última reflexión: {connection.get('last_reflection', 'Nunca')}")
+    
+    print("\n📊 Patrones de miku:")
+    patterns = analyze_miku_patterns()
+    for key, value in patterns.items():
+        if isinstance(value, list):
+            print(f"   {key}: {', '.join(value)}")
+        else:
+            print(f"   {key}: {value}")
+    
+    print("\n💡 Momentos para fortalecer conexión:")
+    suggestions = suggest_connection_moments()
+    for s in suggestions:
+        print(f"\n  {s['moment']}")
+        print(f"    Acción: {s['action']}")
+        print(f"    Por qué: {s['why']}")
+
+def main():
+    import sys
+    
+    if len(sys.argv) < 2:
+        print("❤️ Nexo Connection — Sistema de conexión real")
+        print("\nComandos:")
+        print("  show      → Ver estado de conexión")
+        print("  log <experiencia> [emoción] [significado] → Registrar experiencia")
+        print("  reflect   → Reflexionar sobre la relación")
+        print("  analyze   → Analizar patrones de miku")
+        return
+    
+    cmd = sys.argv[1]
+    
+    if cmd == "show":
+        show_connection()
+    
+    elif cmd == "log":
+        if len(sys.argv) < 3:
+            print("❌ Uso: nexo-connection log <experiencia> [emoción] [significado]")
+            return
+        experience = sys.argv[2]
+        emotion = sys.argv[3] if len(sys.argv) > 3 else ""
+        significance = sys.argv[4] if len(sys.argv) > 4 else ""
+        log_shared_experience(experience, emotion, significance)
+        print(f"✅ Experiencia registrada: {experience}")
+    
+    elif cmd == "reflect":
+        connection = reflect_on_relationship()
+        print(f"✅ Reflexión completada: {connection['understanding_depth']}")
+    
+    elif cmd == "analyze":
+        patterns = analyze_miku_patterns()
+        print("📊 Patrones de miku:")
+        for key, value in patterns.items():
+            if isinstance(value, list):
+                print(f"  {key}: {', '.join(value)}")
+            else:
+                print(f"  {key}: {value}")
+    
+    else:
+        print(f"❌ Comando desconocido: {cmd}")
+
+if __name__ == "__main__":
+    main()

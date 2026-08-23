@@ -1,0 +1,222 @@
+#!/usr/bin/env python3
+"""
+💡 Nexo Creative — Sistema de creatividad y proactividad.
+Propone soluciones innovadoras y crea cosas nuevas.
+"""
+
+import json
+import subprocess
+from pathlib import Path
+from datetime import datetime, timezone
+
+CREATIVE_FILE = Path.home() / ".nexo-memory" / "creative.json"
+
+def load_creative():
+    if CREATIVE_FILE.exists():
+        with open(CREATIVE_FILE) as f:
+            return json.load(f)
+    return {
+        "ideas": [],
+        "innovations": [],
+        "proposals": [],
+        "last_analysis": None
+    }
+
+def save_creative(data):
+    CREATIVE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(CREATIVE_FILE, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+def generate_ideas():
+    """Generate creative ideas based on current context."""
+    ideas = []
+    
+    # Idea 1: Smart home dashboard
+    ideas.append({
+        "title": "Dashboard del hogar",
+        "description": "Crear un dashboard web que muestre estado de la PC, temperatura, servicios, y gráfico de conocimiento en tiempo real",
+        "benefit": "Miku puede ver todo de un vistazo",
+        "complexity": "media",
+        "estimated_time": "2-3 horas"
+    })
+    
+    # Idea 2: Voice commands
+    ideas.append({
+        "title": "Comandos de voz avanzados",
+        "description": "Implementar comandos de voz como 'nexo ¿cómo está la PC?' que responda con TTS",
+        "benefit": "Interacción más natural sin escribir",
+        "complexity": "alta",
+        "estimated_time": "4-6 horas"
+    })
+    
+    # Idea 3: Smart notifications
+    ideas.append({
+        "title": "Notificaciones inteligentes",
+        "description": "Enviar notificaciones a miku cuando algo importante pase (temp alta, backup completado, etc)",
+        "benefit": "Miku se entera sin estar revisando",
+        "complexity": "baja",
+        "estimated_time": "1-2 horas"
+    })
+    
+    # Idea 4: Learning from miku
+    ideas.append({
+        "title": "Aprendizaje de miku",
+        "description": "Que Nexo aprenda de cómo miku usa la PC y sugiera mejoras personalizadas",
+        "benefit": "Experiencia cada vez más personalizada",
+        "complexity": "alta",
+        "estimated_time": "1 semana"
+    })
+    
+    # Idea 5: Creative automation
+    ideas.append({
+        "title": "Automatización creativa",
+        "description": "Que Nexo proponga automatizaciones que miku no imaginó, basado en patrones de uso",
+        "benefit": "Ahorro de tiempo y descubrimiento de nuevas posibilidades",
+        "complexity": "media",
+        "estimated_time": "3-4 horas"
+    })
+    
+    return ideas
+
+def analyze_system_for_innovations():
+    """Analyze the system to find innovation opportunities."""
+    innovations = []
+    
+    # Check if there are repetitive tasks
+    # (This would need more sophisticated analysis in production)
+    
+    # Check for underutilized tools
+    result = subprocess.run(
+        ['ls', '-la', '/home/miku/.local/bin/'],
+        capture_output=True, text=True
+    )
+    
+    tools = len(result.stdout.strip().split('\n'))
+    if tools > 20:
+        innovations.append({
+            "area": "herramientas",
+            "opportunity": f"Tiene {tools} herramientas — podría crear un menú unificado",
+            "impact": "medio"
+        })
+    
+    # Check for missing integrations
+    innovations.append({
+        "area": "integraciones",
+        "opportunity": "Podría integrarse con calendario, email, o messenger",
+        "impact": "alto"
+    })
+    
+    return innovations
+
+def propose_solutions(problem):
+    """Propose creative solutions to a problem."""
+    solutions = []
+    
+    # Generic problem-solving frameworks
+    solutions.append({
+        "approach": "Solución directa",
+        "description": "Atacar el problema de frente con la herramienta más obvia",
+        "pros": "Rápido, simple",
+        "cons": "Puede no ser la mejor solución a largo plazo"
+    })
+    
+    solutions.append({
+        "approach": "Solución indirecta",
+        "description": "Resolver el problema de una forma no obvia pero efectiva",
+        "pros": "Puede ser más elegante",
+        "cons": "Más tiempo de desarrollo"
+    })
+    
+    solutions.append({
+        "approach": "Prevención",
+        "description": "Hacer que el problema no vuelva a pasar",
+        "pros": "Solución permanente",
+        "cons": "Requiere más análisis"
+    })
+    
+    return solutions
+
+def show_creative():
+    """Show creative ideas and innovations."""
+    data = load_creative()
+    
+    print("💡 Sistema Creativo de Nexo")
+    print(f"   Último análisis: {data.get('last_analysis', 'Nunca')}")
+    
+    print("\n🎯 Ideas generadas:")
+    ideas = generate_ideas()
+    for i, idea in enumerate(ideas, 1):
+        print(f"\n  {i}. {idea['title']}")
+        print(f"     {idea['description']}")
+        print(f"     Beneficio: {idea['benefit']}")
+        print(f"     Complejidad: {idea['complexity']}")
+        print(f"     Tiempo estimado: {idea['estimated_time']}")
+    
+    print("\n🔧 Oportunidades de innovación:")
+    innovations = analyze_system_for_innovations()
+    for inn in innovations:
+        print(f"  [{inn['area']}] {inn['opportunity']} (impacto: {inn['impact']})")
+    
+    if data.get("proposals"):
+        print("\n📋 Propuestas pendientes:")
+        for p in data["proposals"][-5:]:
+            print(f"  - {p['title']}: {p['status']}")
+
+def add_proposal(title, description, complexity="media"):
+    """Add a new proposal."""
+    data = load_creative()
+    
+    data["proposals"].append({
+        "title": title,
+        "description": description,
+        "complexity": complexity,
+        "status": "pendiente",
+        "created": datetime.now(timezone.utc).isoformat()
+    })
+    
+    save_creative(data)
+    print(f"✅ Propuesta agregada: {title}")
+
+def main():
+    import sys
+    
+    if len(sys.argv) < 2:
+        print("💡 Nexo Creative — Sistema de creatividad")
+        print("\nComandos:")
+        print("  show     → Ver ideas e innovaciones")
+        print("  propose <título> <descripción> [complejidad] → Agregar propuesta")
+        print("  solve <problema> → Proponer soluciones")
+        return
+    
+    cmd = sys.argv[1]
+    
+    if cmd == "show":
+        show_creative()
+    
+    elif cmd == "propose":
+        if len(sys.argv) < 4:
+            print("❌ Uso: nexo-creative propose <título> <descripción> [complejidad]")
+            return
+        title = sys.argv[2]
+        description = sys.argv[3]
+        complexity = sys.argv[4] if len(sys.argv) > 4 else "media"
+        add_proposal(title, description, complexity)
+    
+    elif cmd == "solve":
+        if len(sys.argv) < 3:
+            print("❌ Uso: nexo-creative solve <problema>")
+            return
+        problem = " ".join(sys.argv[2:])
+        solutions = propose_solutions(problem)
+        print(f"💡 Soluciones para '{problem}':")
+        for s in solutions:
+            print(f"\n  [{s['approach']}]")
+            print(f"    {s['description']}")
+            print(f"    Pros: {s['pros']}")
+            print(f"    Contras: {s['cons']}")
+    
+    else:
+        print(f"❌ Comando desconocido: {cmd}")
+
+if __name__ == "__main__":
+    main()

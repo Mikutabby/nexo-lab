@@ -1,0 +1,6 @@
+{
+  "telegram": {
+    "chat_id": "TU_CHAT_ID",
+    "bot_token": "TU_BOT_TOKEN"
+  }
+}

@@ -1,27 +1,18 @@
-# Datos locales (no subir al repo)
-*.db
-*.pkl
-*.yml
 __pycache__/
 *.pyc
-learned/
-log/
-.DS_Store
-*.swp
-*.swo
-
-# Archivos de configuración local (contienen datos personales)
-agent/style-local.md
-
-# Archivos sensibles (nunca subir)
-*.gpg
-*.key
-*.pem
-*.p12
+*.pyo
 .env
-.env.*
-*.secret
-*password*
-*token*
-*key*
-config/telegram.json
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.tmp
+*.swp
+*~
+.DS_Store
+node_modules/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/

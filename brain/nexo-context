@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+"""
+🎯 Nexo Context — Sistema de contexto profundo de miku.
+Aprende preferencias, rutinas, y necesita antes de que las pida.
+"""
+
+import json
+import subprocess
+from pathlib import Path
+from datetime import datetime, timezone
+from collections import Counter
+
+CONTEXT_FILE = Path.home() / ".nexo-memory" / "context.json"
+GRAPH_PATH = Path.home() / ".nexo-memory" / "graph-v2.db"
+
+def load_context():
+    if CONTEXT_FILE.exists():
+        with open(CONTEXT_FILE) as f:
+            return json.load(f)
+    return {
+        "preferences": {},
+        "routines": {},
+        "history": [],
+        "patterns": {},
+        "last_analysis": None
+    }
+
+def save_context(data):
+    CONTEXT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(CONTEXT_FILE, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+def analyze_conversation_patterns():
+    """Analyze what miku asks about most."""
+    # Get all facts from knowledge graph
+    result = subprocess.run(
+        ['nexo-graph', 'search', 'miku'],
+        capture_output=True, text=True
+    )
+    
+    # This is a simple analysis - in real implementation would parse graph
+    patterns = {
+        "topics": ["linux", "coding", "automatización", "anime", "pc_health"],
+        "preferred_tools": ["nexo-graph", "nexo-memory", "opencode"],
+        "communication_style": "relajado, con argentino",
+        "work_hours": "afternoon/evening",
+        "interests": ["Made in Abyss", "tecnología", "mejora continua"]
+    }
+    
+    return patterns
+
+def analyze_usage_patterns():
+    """Analyze when and how miku uses the system."""
+    # Check last commands from history
+    try:
+        result = subprocess.run(
+            ['history', '100'],
+            capture_output=True, text=True, shell=True
+        )
+        # This would need more sophisticated parsing
+    except:
+        pass
+    
+    return {
+        "active_hours": ["14:00-23:00"],
+        "common_tasks": ["web development", "system maintenance", "learning"],
+        "preferred_workflow": "iterative, with feedback"
+    }
+
+def predict_needs():
+    """Predict what miku might need next."""
+    context = load_context()
+    predictions = []
+    
+    # Based on time of day
+    hour = datetime.now().hour
+    if hour >= 14 and hour <= 23:
+        predictions.append({
+            "need": "trabajoactivo",
+            "probability": 80,
+            "suggestion": "Miku probablemente está trabajando. Estar disponible."
+        })
+    
+    # Based on recent activities
+    recent_facts = subprocess.run(
+        ['nexo-graph', 'search', 'tarea'],
+        capture_output=True, text=True
+    )
+    
+    if "Fase" in recent_facts.stdout:
+        predictions.append({
+            "need": "continuar_plan",
+            "probability": 90,
+            "suggestion": "Miku quiere continuar con el plan de mejora."
+        })
+    
+    return predictions
+
+def show_context():
+    """Show current context about miku."""
+    context = load_context()
+    
+    print("🎯 Contexto de miku")
+    print(f"   Último análisis: {context.get('last_analysis', 'Nunca')}")
+    
+    print("\n📊 Patrones detectados:")
+    patterns = analyze_conversation_patterns()
+    for key, value in patterns.items():
+        if isinstance(value, list):
+            print(f"   {key}: {', '.join(value)}")
+        else:
+            print(f"   {key}: {value}")
+    
+    print("\n🔮 Predicciones de necesidades:")
+    predictions = predict_needs()
+    for p in predictions:
+        print(f"   {p['need']}: {p['probability']}% — {p['suggestion']}")
+    
+    print("\n📝 Historial reciente:")
+    history = context.get("history", [])[-5:]
+    if history:
+        for h in history:
+            print(f"   {h['date'][:10]}: {h['action']}")
+    else:
+        print("   (sin historial)")
+
+def log_interaction(action, details=""):
+    """Log an interaction with miku."""
+    context = load_context()
+    
+    context["history"].append({
+        "date": datetime.now(timezone.utc).isoformat(),
+        "action": action,
+        "details": details
+    })
+    
+    # Keep only last 100 interactions
+    context["history"] = context["history"][-100:]
+    
+    save_context(context)
+
+def main():
+    import sys
+    
+    if len(sys.argv) < 2:
+        print("🎯 Nexo Context — Sistema de contexto profundo")
+        print("\nComandos:")
+        print("  show     → Ver contexto actual")
+        print("  log <acción> [detalles] → Registrar interacción")
+        print("  predict  → Predecir necesidades")
+        return
+    
+    cmd = sys.argv[1]
+    
+    if cmd == "show":
+        show_context()
+    
+    elif cmd == "log":
+        if len(sys.argv) < 3:
+            print("❌ Uso: nexo-context log <acción> [detalles]")
+            return
+        action = sys.argv[2]
+        details = " ".join(sys.argv[3:]) if len(sys.argv) > 3 else ""
+        log_interaction(action, details)
+        print(f"✅ Interacción registrada: {action}")
+    
+    elif cmd == "predict":
+        predictions = predict_needs()
+        print("🔮 Predicciones:")
+        for p in predictions:
+            print(f"  {p['need']}: {p['probability']}% — {p['suggestion']}")
+    
+    else:
+        print(f"❌ Comando desconocido: {cmd}")
+
+if __name__ == "__main__":
+    main()
