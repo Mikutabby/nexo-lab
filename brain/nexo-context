@@ -5,6 +5,7 @@ Aprende preferencias, rutinas, y necesita antes de que las pida.
 """
 
 import json
+import sys
 import subprocess
 from pathlib import Path
 from datetime import datetime, timezone
@@ -140,8 +141,6 @@ def log_interaction(action, details=""):
     save_context(context)
 
 def main():
-    import sys
-    
     if len(sys.argv) < 2:
         print("🎯 Nexo Context — Sistema de contexto profundo")
         print("\nComandos:")

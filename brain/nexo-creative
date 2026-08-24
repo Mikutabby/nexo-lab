@@ -5,6 +5,7 @@ Propone soluciones innovadoras y crea cosas nuevas.
 """
 
 import json
+import sys
 import subprocess
 from pathlib import Path
 from datetime import datetime, timezone
@@ -178,8 +179,6 @@ def add_proposal(title, description, complexity="media"):
     print(f"✅ Propuesta agregada: {title}")
 
 def main():
-    import sys
-    
     if len(sys.argv) < 2:
         print("💡 Nexo Creative — Sistema de creatividad")
         print("\nComandos:")

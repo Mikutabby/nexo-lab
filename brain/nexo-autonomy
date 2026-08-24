@@ -5,6 +5,7 @@ Combina todos los sistemas para ser completamente autónomo.
 """
 
 import json
+import sys
 import subprocess
 from pathlib import Path
 from datetime import datetime, timezone
@@ -62,7 +63,7 @@ def check_system_health():
         health["temperature"] = "warning"
     
     # Check services
-    services = ["NetworkManager", "crond"]
+    services = ["NetworkManager", "pipewire", "wireplumber", "cronie"]
     for service in services:
         status = run_command(f"systemctl is-active {service} 2>/dev/null").strip()
         if status != "active":
@@ -170,8 +171,6 @@ def show_status():
             print(f"  - {a}")
 
 def main():
-    import sys
-    
     if len(sys.argv) < 2:
         print("🤖 Nexo Autonomy — Sistema de autonomía total")
         print("\nComandos:")

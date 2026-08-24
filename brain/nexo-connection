@@ -5,6 +5,7 @@ Entiende a miku a un nivel profundo y crea una relación genuina.
 """
 
 import json
+import sys
 import subprocess
 from pathlib import Path
 from datetime import datetime, timezone
@@ -136,8 +137,6 @@ def show_connection():
         print(f"    Por qué: {s['why']}")
 
 def main():
-    import sys
-    
     if len(sys.argv) < 2:
         print("❤️ Nexo Connection — Sistema de conexión real")
         print("\nComandos:")
